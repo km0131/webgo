@@ -37,18 +37,30 @@
                     </div>
 
                     <div class="mb-3">
-                        <label for="inputEmail" class="form-label">
-                            メールアドレス
-                        </label>
-                        <input type="email" class="form-control" id="inputEmail" required>
-                    </div>
-
-                    <div class="mb-3">
                         <label for="inputPassword" class="form-label">
                             パスワード
                         </label>
-                        <input type="password" class="form-control" id="inputPassword" required>
+                        <div class="input-group">
+                            <input type="password" class="form-control" id="inputPassword" required autocomplete="new-password">
+                            <button class="btn btn-outline-secondary" type="button" id="togglePasswordBtn" aria-label="パスワード表示切り替え">
+                                <span id="togglePasswordIcon">(〃ﾉдﾉ)ﾃﾚ</span>
+                            </button>
+                        </div>
                     </div>
+
+                    <div class="mb-3">
+                        <label for="confirm_inputPassword" class="form-label">
+                            パスワード(確認用)
+                        </label>
+                        <div class="input-group">
+                            <input type="password" class="form-control" id="confirm_inputPassword" required autocomplete="new-password">
+                            <button class="btn btn-outline-secondary" type="button" id="toggleConfirmPasswordBtn" aria-label="確認用パスワード表示切り替え">
+                                <span id="toggleConfirmPasswordIcon">(〃ﾉдﾉ)ﾃﾚ</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <p id="match_message" style="margin-top: 10px;"></p>
 
                     <div class="d-grid gap-2">
                         <button type="submit" class="btn btn-primary btn-lg">
@@ -56,6 +68,7 @@
                         </button>
                     </div>
                 </form>
+
                 
                 <hr class="my-4">
 
@@ -68,5 +81,62 @@
         </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const passwordInput = document.getElementById("inputPassword");
+        const confirmPasswordInput = document.getElementById("confirm_inputPassword");
+        const messageElement = document.getElementById('match_message');
+        const submitButton = document.querySelector('button[type="submit"]');
+
+        // 以前のチェックボックス関連の要素は削除されました
+        // const togglePasswordCheckbox = document.getElementById('togglePassword');
+        // const toggleConfirmPasswordCheckbox = document.getElementById('toggleConfirmPassword');
+
+        // 新しいアイコンボタンとアイコン要素を取得
+        const togglePasswordBtn = document.getElementById('togglePasswordBtn');
+        const togglePasswordIcon = document.getElementById('togglePasswordIcon');
+        const toggleConfirmPasswordBtn = document.getElementById('toggleConfirmPasswordBtn');
+        const toggleConfirmPasswordIcon = document.getElementById('toggleConfirmPasswordIcon');
+
+        function checkPasswordMatch() {
+            const password = passwordInput.value;
+            const confirmPassword = confirmPasswordInput.value;
+
+            // 両方のフィールドが空でなければチェックを実行
+            if (password.length > 0 || confirmPassword.length > 0) {
+                if (password === confirmPassword) {
+                    // 一致する場合
+                    messageElement.textContent = '✅ パスワードは一致しています。(♡ >ω< ♡)';
+                    messageElement.style.color = 'green';
+                    submitButton.disabled = (password.length === 0); // パスワードが空でなければ有効化
+                } else {
+                    // 一致しない場合
+                    messageElement.textContent = '❌ パスワードが一致しません。(ꐦ ‾᷄꒫‾᷅ )';
+                    messageElement.style.color = 'red';
+                    submitButton.disabled = true; // 登録ボタンを無効化
+                }
+            } else {
+                // 片方または両方が空の場合、メッセージをクリアし、ボタンを無効化
+                messageElement.textContent = '';
+                submitButton.disabled = true; // 両方空の場合は無効化
+            }
+        }
+        passwordInput.addEventListener('input', checkPasswordMatch); // パスワード入力時にチェック
+        confirmPasswordInput.addEventListener('input', checkPasswordMatch); // 確認用パスワード入力時にチェック
+
+        // アイコンボタンのクリックイベントでパスワード表示を切り替える
+        togglePasswordBtn.addEventListener('click', function() {
+            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            passwordInput.setAttribute('type', type);
+            togglePasswordIcon.textContent = (type === 'password' ? '(〃ﾉдﾉ)ﾃﾚ' : '|ω･)ﾁﾗ'); // アイコンも切り替える
+        }); // パスワード表示切替
+
+        toggleConfirmPasswordBtn.addEventListener('click', function() {
+            const type = confirmPasswordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            confirmPasswordInput.setAttribute('type', type);
+            toggleConfirmPasswordIcon.textContent = (type === 'password' ? '(〃ﾉдﾉ)ﾃﾚ' : '|ω･)ﾁﾗ'); // アイコンも切り替える
+        }); // 確認用パスワード表示切替
+
+        checkPasswordMatch(); // 初期状態でボタンの状態を正しく設定
+    </script>
 </body>
 </html>

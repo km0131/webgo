@@ -14,7 +14,6 @@ func main() {
 			"title": "ログイン画面",
 		})
 	})
-
 	r.GET("/signup", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "signup.html", gin.H{
 			"title": "新規登録画面",
