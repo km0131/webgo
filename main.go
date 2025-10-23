@@ -19,5 +19,14 @@ func main() {
 			"title": "新規登録画面",
 		})
 	})
+	r.POST("/signup", func(c *gin.Context) {
+		username := c.PostForm("inputUsername")
+		password := c.PostForm("password")
+		c.JSON(http.StatusOK, gin.H{
+			"message": "ユーザー登録リクエストを受信しました",
+			"user":    username,
+			"pass":    password,
+		})
+	})
 	r.Run(":8080")
 }

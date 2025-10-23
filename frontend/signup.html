@@ -54,42 +54,42 @@
                     <!-- 生徒用登録フォーム -->
                     <div class="tab-pane fade show active" id="student-pane" role="tabpanel" aria-labelledby="student-tab" tabindex="0">
                         <h3 class="card-title text-center mb-4">新規登録 (生徒用)</h3>
-                        <form>
+                        <form action="/signup" method="POST">
                             <div class="mb-3">
-                                <label for="inputUsername" class="form-label">
+                                <label for="studentUsername" class="form-label">
                                     👤ユーザー名
                                 </label>
-                                <input type="text" class="form-control" id="inputUsername" required>
+                                <input type="text" class="form-control" id="studentUsername" name="inputUsername" required>
                             </div>
 
                             <div class="mb-3">
-                                <label for="inputPassword" class="form-label">
+                                <label for="studentPassword" class="form-label">
                                     🔑パスワード
                                 </label>
                                 <div class="input-group">
-                                    <input type="password" class="form-control" id="inputPassword" required autocomplete="new-password">
-                                    <button class="btn btn-outline-secondary" type="button" id="togglePasswordBtn" aria-label="パスワード表示切り替え">
-                                        <span id="togglePasswordIcon">🔒</span>
+                                    <input type="password" class="form-control" id="studentPassword" name="password" required autocomplete="new-password">
+                                    <button class="btn btn-outline-secondary" type="button" id="toggleStudentPasswordBtn" aria-label="パスワード表示切り替え">
+                                        <span id="toggleStudentPasswordIcon">🔒</span>
                                     </button>
                                 </div>
                             </div>
 
                             <div class="mb-3">
-                                <label for="confirm_inputPassword" class="form-label">
+                                <label for="studentConfirmPassword" class="form-label">
                                     🗝️パスワード(確認用)
                                 </label>
                                 <div class="input-group">
-                                    <input type="password" class="form-control" id="confirm_inputPassword" required autocomplete="new-password">
-                                    <button class="btn btn-outline-secondary" type="button" id="toggleConfirmPasswordBtn" aria-label="確認用パスワード表示切り替え">
-                                        <span id="toggleConfirmPasswordIcon">🔒</span>
+                                    <input type="password" class="form-control" id="studentConfirmPassword" name="confirm_password" required autocomplete="new-password">
+                                    <button class="btn btn-outline-secondary" type="button" id="toggleStudentConfirmPasswordBtn" aria-label="確認用パスワード表示切り替え">
+                                        <span id="toggleStudentConfirmPasswordIcon">🔒</span>
                                     </button>
                                 </div>
                             </div>
 
-                            <p id="match_message" style="margin-top: 10px;"></p>
+                            <p id="student_match_message" style="margin-top: 10px;"></p>
 
                             <div class="d-grid gap-2">
-                                <button type="submit" class="btn btn-primary btn-lg">
+                                <button type="submit" class="btn btn-primary btn-lg" id="studentSubmitBtn">
                                     登録する
                                 </button>
                             </div>
@@ -99,49 +99,49 @@
                     <!-- 先生用登録フォーム -->
                     <div class="tab-pane fade" id="teacher-pane" role="tabpanel" aria-labelledby="teacher-tab" tabindex="0">
                         <h3 class="card-title text-center mb-4">新規登録 (先生用)</h3>
-                        <form>
+                        <form action="/signup" method="POST">
                             <div class="mb-3">
-                                <label for="inputUsername" class="form-label">
+                                <label for="teacherUsername" class="form-label">
                                     👤ユーザー名
                                 </label>
-                                <input type="text" class="form-control" id="inputUsername" required>
+                                <input type="text" class="form-control" id="teacherUsername" name="inputUsername" required>
                             </div>
 
                             <div class="mb-3">
-                                <label for="inputEmail" class="form-label">
+                                <label for="teacherEmail" class="form-label">
                                     ✉️ メールアドレス
                                 </label>
-                                <input type="email" class="form-control" id="inputEmail" required>
+                                <input type="email" class="form-control" id="teacherEmail" name="email" required>
                             </div>
 
                             <div class="mb-3">
-                                <label for="inputPassword" class="form-label">
+                                <label for="teacherPassword" class="form-label">
                                     🔑パスワード
                                 </label>
                                 <div class="input-group">
-                                    <input type="password" class="form-control" id="inputPassword" required autocomplete="new-password">
-                                    <button class="btn btn-outline-secondary" type="button" id="togglePasswordBtn" aria-label="パスワード表示切り替え">
-                                        <span id="togglePasswordIcon">🔒</span>
+                                    <input type="password" class="form-control" id="teacherPassword" name="password" required autocomplete="new-password">
+                                    <button class="btn btn-outline-secondary" type="button" id="toggleTeacherPasswordBtn" aria-label="パスワード表示切り替え">
+                                        <span id="toggleTeacherPasswordIcon">🔒</span>
                                     </button>
                                 </div>
                             </div>
 
                             <div class="mb-3">
-                                <label for="confirm_inputPassword" class="form-label">
+                                <label for="teacherConfirmPassword" class="form-label">
                                     🗝️パスワード(確認用)
                                 </label>
                                 <div class="input-group">
-                                    <input type="password" class="form-control" id="confirm_inputPassword" required autocomplete="new-password">
-                                    <button class="btn btn-outline-secondary" type="button" id="toggleConfirmPasswordBtn" aria-label="確認用パスワード表示切り替え">
-                                        <span id="toggleConfirmPasswordIcon">🔒</span>
+                                    <input type="password" class="form-control" id="teacherConfirmPassword" name="confirm_password" required autocomplete="new-password">
+                                    <button class="btn btn-outline-secondary" type="button" id="toggleTeacherConfirmPasswordBtn" aria-label="確認用パスワード表示切り替え">
+                                        <span id="toggleTeacherConfirmPasswordIcon">🔒</span>
                                     </button>
                                 </div>
                             </div>
 
-                            <p id="match_message" style="margin-top: 10px;"></p>
+                            <p id="teacher_match_message" style="margin-top: 10px;"></p>
 
                             <div class="d-grid gap-2">
-                                <button type="submit" class="btn btn-success btn-lg">
+                                <button type="submit" class="btn btn-success btn-lg" id="teacherSubmitBtn">
                                     登録する
                                 </button>
                             </div>
@@ -162,106 +162,63 @@
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-    // ----------------------------------------------------
-    // 3. パスワード表示切り替え機能の定義
-    // ----------------------------------------------------
-    function setupToggle(inputEl, btnEl, iconEl) {
-        btnEl.addEventListener('click', function() {
-            const type = inputEl.getAttribute('type') === 'password' ? 'text' : 'password';
-            inputEl.setAttribute('type', type);
-            iconEl.textContent = (type === 'password' ? '🔒' : '🔓'); // アイコンも切り替える
-        });
-    }
-    // フォーム内でIDが重複しているため、タブが切り替わるたびに要素を動的に取得・設定します。
-    // Bootstrapのタブ切り替えイベントを使用します。
-    const signupTab = document.getElementById('signupTab');
+    document.addEventListener('DOMContentLoaded', function() {
+        function setupPasswordToggle(inputId, buttonId, iconId) {
+            const input = document.getElementById(inputId);
+            const button = document.getElementById(buttonId);
+            const icon = document.getElementById(iconId);
 
-    signupTab.addEventListener('shown.bs.tab', function (event) {
-        // 現在アクティブになったタブのペインIDを取得 (例: #student-pane)
-        const activePaneId = event.target.getAttribute('data-bs-target');
-        const activePane = document.querySelector(activePaneId);
+            if (!input || !button || !icon) return;
 
-        // --------------------------------------
-        // 1. アクティブなタブ内の要素を特定
-        // --------------------------------------
-        // querySelectorで、現在アクティブなペイン内にある要素のみを取得
-        const passwordInput = activePane.querySelector('#inputPassword');
-        const confirmPasswordInput = activePane.querySelector('#confirm_inputPassword');
-        const messageElement = activePane.querySelector('#match_message');
-        // 'form'要素を探し、その中の最初の 'button[type="submit"]' を取得
-        const submitButton = activePane.querySelector('form').querySelector('button[type="submit"]');
+            button.addEventListener('click', function() {
+                const isPassword = input.type === 'password';
+                input.type = isPassword ? 'text' : 'password';
+                icon.textContent = isPassword ? '🔓' : '🔒';
+            });
+        }
 
-        // 表示切替用のボタンとアイコンも、アクティブなペイン内から特定
-        const togglePasswordBtn = activePane.querySelector('#togglePasswordBtn');
-        const togglePasswordIcon = activePane.querySelector('#togglePasswordIcon');
-        const toggleConfirmPasswordBtn = activePane.querySelector('#toggleConfirmPasswordBtn');
-        const toggleConfirmPasswordIcon = activePane.querySelector('#toggleConfirmPasswordIcon');
+        function setupPasswordMatch(passwordId, confirmId, messageSelector, submitId) {
+            const passwordInput = document.getElementById(passwordId);
+            const confirmPasswordInput = document.getElementById(confirmId);
+            const messageElement = document.querySelector(messageSelector);
+            const submitButton = document.getElementById(submitId);
 
+            if (!passwordInput || !confirmPasswordInput || !messageElement || !submitButton) return;
 
-        // ----------------------------------------------------
-        // 2. パスワード一致チェック機能の定義と設定
-        // ----------------------------------------------------
-        function checkPasswordMatch() {
-            // 要素が取得できていない場合は処理を中断
-            if (!passwordInput || !confirmPasswordInput) return;
-
+            const check = () => {
             const password = passwordInput.value;
             const confirmPassword = confirmPasswordInput.value;
 
-            // 両方のフィールドが空でなければチェックを実行
-            if (password.length > 0 && confirmPassword.length > 0) {
-                if (password === confirmPassword && password.length > 0) {
-                    // 一致する場合 
+                // 両方のフィールドが空でなく、かつパスワードが一致する場合のみボタンを有効化
+                if (password && confirmPassword && password === confirmPassword) {
                     messageElement.textContent = '✅ パスワードは一致しています。(♡ >ω< ♡)';
                     messageElement.style.color = 'green';
-                    submitButton.disabled = false; // 登録ボタンを有効化
+                    submitButton.disabled = false;
                 } else {
-                    // 一致しない場合
-                    messageElement.textContent = '❌ パスワードが一致しません。(ꐦ ‾᷄꒫‾᷅ )';
-                    messageElement.style.color = 'red';
-                    submitButton.disabled = true; // 登録ボタンを無効化
+                    submitButton.disabled = true; // それ以外は常に無効
+                    if (password || confirmPassword) { // どちらかに入力があれば不一致メッセージを表示
+                        messageElement.textContent = '❌ パスワードが一致しません。(ꐦ ‾᷄꒫‾᷅ )';
+                        messageElement.style.color = 'red';
+                    } else { // 両方空ならメッセージも消す
+                        messageElement.textContent = '';
+                    }
                 }
-            } else {
-                // 両方空の場合、メッセージをクリアし、ボタンを無効化
-                messageElement.textContent = '';
-                submitButton.disabled = true;
-            }
+            };
+
+            passwordInput.addEventListener('input', check);
+            confirmPasswordInput.addEventListener('input', check);
+            check(); // 初期状態を設定
         }
 
-        // イベントリスナーを再設定 
-        passwordInput.addEventListener('input', checkPasswordMatch);
-        confirmPasswordInput.addEventListener('input', checkPasswordMatch);
+        // 生徒用フォームのセットアップ
+        setupPasswordToggle('studentPassword', 'toggleStudentPasswordBtn', 'toggleStudentPasswordIcon');
+        setupPasswordToggle('studentConfirmPassword', 'toggleStudentConfirmPasswordBtn', 'toggleStudentConfirmPasswordIcon');
+        setupPasswordMatch('studentPassword', 'studentConfirmPassword', '#student_match_message', 'studentSubmitBtn');
 
-        // 初回ロード時またはタブ切り替え時にチェックを実行し、初期ボタン状態を設定
-        checkPasswordMatch();
-    });
-    
-    // ページロード時、最初にアクティブなタブ（生徒用）に対して機能をセットアップ
-    document.addEventListener('DOMContentLoaded', function() {
-        // パスワード表示切り替え機能はページロード時に一度だけ設定する
-        document.querySelectorAll('.tab-pane').forEach(pane => {
-            const passwordInput = pane.querySelector('#inputPassword');
-            const togglePasswordBtn = pane.querySelector('#togglePasswordBtn');
-            const togglePasswordIcon = pane.querySelector('#togglePasswordIcon');
-            if (passwordInput && togglePasswordBtn && togglePasswordIcon) {
-                setupToggle(passwordInput, togglePasswordBtn, togglePasswordIcon);
-            }
-
-            const confirmPasswordInput = pane.querySelector('#confirm_inputPassword');
-            const toggleConfirmPasswordBtn = pane.querySelector('#toggleConfirmPasswordBtn');
-            const toggleConfirmPasswordIcon = pane.querySelector('#toggleConfirmPasswordIcon');
-            if (confirmPasswordInput && toggleConfirmPasswordBtn && toggleConfirmPasswordIcon) {
-                setupToggle(confirmPasswordInput, toggleConfirmPasswordBtn, toggleConfirmPasswordIcon);
-            }
-        });
-
-        const studentTabButton = document.getElementById('student-tab');
-        if (studentTabButton) {
-            // 'shown.bs.tab'イベントを手動で発行し、上記のロジックを起動
-            const event = new Event('shown.bs.tab');
-            event.target = studentTabButton;
-            signupTab.dispatchEvent(event);
-        }
+        // 先生用フォームのセットアップ
+        setupPasswordToggle('teacherPassword', 'toggleTeacherPasswordBtn', 'toggleTeacherPasswordIcon');
+        setupPasswordToggle('teacherConfirmPassword', 'toggleTeacherConfirmPasswordBtn', 'toggleTeacherConfirmPasswordIcon');
+        setupPasswordMatch('teacherPassword', 'teacherConfirmPassword', '#teacher_match_message', 'teacherSubmitBtn');
     });
 
 </script>
