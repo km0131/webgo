@@ -10,6 +10,7 @@ import (
 	"log"
 
 	"crypto/rand"
+	"html/template"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -29,6 +30,7 @@ func main() {
 
 	r := gin.Default()
 	r.LoadHTMLGlob("frontend/*.html")
+	r.Static("/static", "./image")
 	r.GET("/", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "login.html", gin.H{
 			"title": "ログイン画面",
@@ -37,6 +39,7 @@ func main() {
 	r.GET("/signup", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "signup.html", gin.H{
 			"title": "新規登録画面",
+			"img":   template.HTML(`<img src="/static/certification/1.png" alt="サインアップ画像">`),
 		})
 	})
 	r.POST("/signup", func(c *gin.Context) { //フォームをDBに保存
