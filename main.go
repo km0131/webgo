@@ -94,7 +94,7 @@ func hashing(password string, salt string) string {
 	// SHA-512ハッシュにSaltを付与してArgon2id(二次ハッシュ)
 	argonHash := argon2.IDKey(shaHash[:], []byte(salt), time, memory, threads, keyLen)
 
-	return base64.RawStdEncoding.EncodeToString(argonHash)
+	return base64.RawStdEncoding.EncodeToString(argonHash) // Base64に変換して保存可能にして返却
 }
 
 // ユーザ登録関数
