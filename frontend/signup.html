@@ -62,30 +62,6 @@
                                 <input type="text" class="form-control" id="studentUsername" name="inputUsername" required>
                             </div>
 
-                            <div class="mb-3">
-                                <label for="studentPassword" class="form-label">
-                                    🔑パスワード
-                                </label>
-                                <div class="input-group">
-                                    <input type="password" class="form-control" id="studentPassword" name="password" required autocomplete="new-password">
-                                    <button class="btn btn-outline-secondary" type="button" id="toggleStudentPasswordBtn" aria-label="パスワード表示切り替え">
-                                        <span id="toggleStudentPasswordIcon">🔒</span>
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div class="mb-3">
-                                <label for="studentConfirmPassword" class="form-label">
-                                    🗝️パスワード(確認用)
-                                </label>
-                                <div class="input-group">
-                                    <input type="password" class="form-control" id="studentConfirmPassword" name="confirm_password" required autocomplete="new-password">
-                                    <button class="btn btn-outline-secondary" type="button" id="toggleStudentConfirmPasswordBtn" aria-label="確認用パスワード表示切り替え">
-                                        <span id="toggleStudentConfirmPasswordIcon">🔒</span>
-                                    </button>
-                                </div>
-                            </div>
-
                             <p id="student_match_message" style="margin-top: 10px;"></p>
 
                             <div class="d-grid gap-2">
@@ -114,30 +90,6 @@
                                 <input type="email" class="form-control" id="teacherEmail" name="email" required>
                             </div>
 
-                            <div class="mb-3">
-                                <label for="teacherPassword" class="form-label">
-                                    🔑パスワード
-                                </label>
-                                <div class="input-group">
-                                    <input type="password" class="form-control" id="teacherPassword" name="password" required autocomplete="new-password">
-                                    <button class="btn btn-outline-secondary" type="button" id="toggleTeacherPasswordBtn" aria-label="パスワード表示切り替え">
-                                        <span id="toggleTeacherPasswordIcon">🔒</span>
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div class="mb-3">
-                                <label for="teacherConfirmPassword" class="form-label">
-                                    🗝️パスワード(確認用)
-                                </label>
-                                <div class="input-group">
-                                    <input type="password" class="form-control" id="teacherConfirmPassword" name="confirm_password" required autocomplete="new-password">
-                                    <button class="btn btn-outline-secondary" type="button" id="toggleTeacherConfirmPasswordBtn" aria-label="確認用パスワード表示切り替え">
-                                        <span id="toggleTeacherConfirmPasswordIcon">🔒</span>
-                                    </button>
-                                </div>
-                            </div>
-
                             <p id="teacher_match_message" style="margin-top: 10px;"></p>
 
                             <div class="d-grid gap-2">
@@ -162,65 +114,7 @@
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        function setupPasswordToggle(inputId, buttonId, iconId) {
-            const input = document.getElementById(inputId);
-            const button = document.getElementById(buttonId);
-            const icon = document.getElementById(iconId);
-
-            if (!input || !button || !icon) return;
-
-            button.addEventListener('click', function() {
-                const isPassword = input.type === 'password';
-                input.type = isPassword ? 'text' : 'password';
-                icon.textContent = isPassword ? '🔓' : '🔒';
-            });
-        }
-
-        function setupPasswordMatch(passwordId, confirmId, messageSelector, submitId) {
-            const passwordInput = document.getElementById(passwordId);
-            const confirmPasswordInput = document.getElementById(confirmId);
-            const messageElement = document.querySelector(messageSelector);
-            const submitButton = document.getElementById(submitId);
-
-            if (!passwordInput || !confirmPasswordInput || !messageElement || !submitButton) return;
-
-            const check = () => {
-            const password = passwordInput.value;
-            const confirmPassword = confirmPasswordInput.value;
-
-                // 両方のフィールドが空でなく、かつパスワードが一致する場合のみボタンを有効化
-                if (password && confirmPassword && password === confirmPassword) {
-                    messageElement.textContent = '✅ パスワードは一致しています。(♡ >ω< ♡)';
-                    messageElement.style.color = 'green';
-                    submitButton.disabled = false;
-                } else {
-                    submitButton.disabled = true; // それ以外は常に無効
-                    if (password || confirmPassword) { // どちらかに入力があれば不一致メッセージを表示
-                        messageElement.textContent = '❌ パスワードが一致しません。(ꐦ ‾᷄꒫‾᷅ )';
-                        messageElement.style.color = 'red';
-                    } else { // 両方空ならメッセージも消す
-                        messageElement.textContent = '';
-                    }
-                }
-            };
-
-            passwordInput.addEventListener('input', check);
-            confirmPasswordInput.addEventListener('input', check);
-            check(); // 初期状態を設定
-        }
-
-        // 生徒用フォームのセットアップ
-        setupPasswordToggle('studentPassword', 'toggleStudentPasswordBtn', 'toggleStudentPasswordIcon');
-        setupPasswordToggle('studentConfirmPassword', 'toggleStudentConfirmPasswordBtn', 'toggleStudentConfirmPasswordIcon');
-        setupPasswordMatch('studentPassword', 'studentConfirmPassword', '#student_match_message', 'studentSubmitBtn');
-
-        // 先生用フォームのセットアップ
-        setupPasswordToggle('teacherPassword', 'toggleTeacherPasswordBtn', 'toggleTeacherPasswordIcon');
-        setupPasswordToggle('teacherConfirmPassword', 'toggleTeacherConfirmPasswordBtn', 'toggleTeacherConfirmPasswordIcon');
-        setupPasswordMatch('teacherPassword', 'teacherConfirmPassword', '#teacher_match_message', 'teacherSubmitBtn');
-    });
-
-</script>
+        
+    </script>
 </body>
 </html>

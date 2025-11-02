@@ -10,11 +10,8 @@ import (
 	"log"
 
 	"crypto/rand"
-	"crypto/sha512"
-	"encoding/base64"
 
 	_ "github.com/mattn/go-sqlite3"
-	"golang.org/x/crypto/argon2"
 )
 
 func main() {
@@ -48,21 +45,12 @@ func main() {
 			fmt.Println("saltでエラー：", err)
 		}
 		username := c.PostForm("inputUsername")
-		password := c.PostForm("password")
 		email := c.PostForm("email")
 		teacher := true
 		if email == "" {
 			email = "null"
 			teacher = false
 		}
-
-		//ハッシュ化
-		hashStr := hashing(password, string(salt))
-
-		// Base64に変換して保存可能に
-		saltStr := base64.RawStdEncoding.EncodeToString(salt)
-
-		err := InsertUser(db, username, hashStr, saltStr, email, teacher)
 
 		if err != nil {
 			// ログ出力や、ユーザーへのエラーメッセージ表示
@@ -72,29 +60,11 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{
 			"message": "ユーザー登録リクエストを受信しました",
 			"user":    username,
-			"pass":    hashStr,
-			"salt":    saltStr,
 			"email":   email,
 			"teacher": teacher,
 		})
 	})
 	r.Run(":8080")
-}
-
-// ハッシュ化関数
-func hashing(password string, salt string) string {
-	// まずSHA-512で一次ハッシュ
-	shaHash := sha512.Sum512([]byte(password))
-	// 軽量Argon2idパラメータ
-	const time = 1           //（反復回数）
-	const memory = 32 * 1024 // （使用メモリ）32 MB
-	const threads = 1        //（並列度
-	const keyLen = 32        //（ハッシュ長）：
-
-	// SHA-512ハッシュにSaltを付与してArgon2id(二次ハッシュ)
-	argonHash := argon2.IDKey(shaHash[:], []byte(salt), time, memory, threads, keyLen)
-
-	return base64.RawStdEncoding.EncodeToString(argonHash) // Base64に変換して保存可能にして返却
 }
 
 // ユーザ登録関数
