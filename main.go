@@ -13,15 +13,19 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
+
+	"github.com/gin-contrib/sessions"
+	"github.com/gin-contrib/sessions/cookie"
 )
 
+const sessionKey = "signup_image_list"
+
 func main() {
-	rand.Seed(time.Now().UnixNano())
-	db, err := sql.Open("sqlite3", "./web.sqlite3")
+	db, err := sql.Open("sqlite3", "./web.sqlite3") //データベースを開く
 	if err != nil {
 		log.Fatal("sql.Openでエラー:", err)
 	}
-
+	defer db.Close() //データベースを閉じる
 	err = db.Ping()
 	if err != nil {
 		log.Fatal("db.Pingでエラー:", err)
@@ -30,6 +34,11 @@ func main() {
 	fmt.Println("SQLite DBに接続しました")
 
 	r := gin.Default()
+	secret := []byte("your-very-secret-key-that-should-be-long-and-random") // 秘密鍵 (シークレットキー) を設定します。
+	store := cookie.NewStore(secret)                                        // 1. クッキーストアを作成
+	r.Use(sessions.Sessions("mysession", store))                            // 2. セッションミドルウェアをルーターに適用
+	rand.Seed(time.Now().UnixNano())
+
 	r.LoadHTMLGlob("frontend/*.html")
 	r.Static("/static", "./image")
 	r.GET("/", func(c *gin.Context) {
@@ -44,6 +53,12 @@ func main() {
 		}
 		fmt.Println(list)
 		fmt.Println(name)
+		// セッションを取得
+		session := sessions.Default(c)
+		// データを保存
+		session.Set(sessionKey, list)
+		// 変更を保存 (これがクッキーとしてクライアントに送信されます)
+		session.Save()
 		c.HTML(http.StatusOK, "signup.html", gin.H{
 			"title":    "新規登録画面",
 			"img":      list,
@@ -51,9 +66,13 @@ func main() {
 		})
 	})
 	r.POST("/signup", func(c *gin.Context) { //フォームをDBに保存
+		session := sessions.Default(c)
+		// セッションからデータを取り出し、型アサーションを行う
+		listInterface := session.Get(sessionKey)
 		username := c.PostForm("inputUsername")
 		email := c.PostForm("email")
 		teacher := true
+		password := c.PostFormArray("selected_images[]")
 		if email == "" {
 			email = "null"
 			teacher = false
@@ -65,10 +84,12 @@ func main() {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"message": "ユーザー登録リクエストを受信しました",
-			"user":    username,
-			"email":   email,
-			"teacher": teacher,
+			"message":   "ユーザー登録リクエストを受信しました",
+			"user":      username,
+			"email":     email,
+			"teacher":   teacher,
+			"password":  password,
+			"password2": listInterface,
 		})
 	})
 	r.Run(":8080")
