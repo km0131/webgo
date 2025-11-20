@@ -8,14 +8,15 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-
-	"crypto/rand"
-	"html/template"
+	"math/rand"
+	"strconv"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
 	db, err := sql.Open("sqlite3", "./web.sqlite3")
 	if err != nil {
 		log.Fatal("sql.Openでエラー:", err)
@@ -37,16 +38,19 @@ func main() {
 		})
 	})
 	r.GET("/signup", func(c *gin.Context) {
+		list, name, err := Random_image(db) //ランダムに画像のパスを取得
+		if err != nil {
+			log.Fatal("画像リストの生成中にエラーが発生しました:", err)
+		}
+		fmt.Println(list)
+		fmt.Println(name)
 		c.HTML(http.StatusOK, "signup.html", gin.H{
-			"title": "新規登録画面",
-			"img":   template.HTML(`<img src="/static/certification/1.png" alt="サインアップ画像">`),
+			"title":    "新規登録画面",
+			"img":      list,
+			"img_name": name,
 		})
 	})
 	r.POST("/signup", func(c *gin.Context) { //フォームをDBに保存
-		salt := make([]byte, 16) // ランダムSalt生成
-		if _, err := rand.Read(salt); err != nil {
-			fmt.Println("saltでエラー：", err)
-		}
 		username := c.PostForm("inputUsername")
 		email := c.PostForm("email")
 		teacher := true
@@ -89,4 +93,33 @@ func InsertUser(db *sql.DB, name string, hashStr string, saltStr string, email s
 	log.Printf("影響を受けた行数: %d\n", rowsAffected)
 
 	return nil
+}
+
+// ランダムに画像を選択
+func Random_image(db *sql.DB) ([]string, []string, error) {
+	const totalCount = 30
+	candidates := make([]int, totalCount)
+	for i := 0; i < totalCount; i++ {
+		candidates[i] = i + 1
+	} //１から３０までのリストを作成
+	rand.Shuffle(len(candidates), func(i, j int) {
+		candidates[i], candidates[j] = candidates[j], candidates[i]
+	}) //リストをランダムに並び替える
+	const selectionCount = 10
+	list := make([]string, 0, selectionCount)
+	name := make([]string, 0, selectionCount)
+	for i := 0; i < selectionCount; i++ {
+		imageID := candidates[i]
+		r := "static/certification/" + strconv.Itoa(imageID) + ".png"
+		var fetchedName string
+		query := `SELECT name FROM certification WHERE id = ?`
+		err := db.QueryRow(query, imageID).Scan(&fetchedName)
+		if err != nil {
+			// 取得エラーが発生した場合、エラーを返し、スライスはnilにする
+			return nil, nil, fmt.Errorf("ID %d のデータ取得に失敗しました: %w", imageID, err)
+		}
+		list = append(list, r)
+		name = append(name, fetchedName)
+	}
+	return list, name, nil
 }
