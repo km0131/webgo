@@ -171,7 +171,6 @@ func hashPassword(password string, p *params) (hash string, err error) {
 	// 形式: $argon2id$v=19$m={memory},t={iterations},p={parallelism}${salt_base64}${hash_base64}
 	b64Salt := base64.RawStdEncoding.EncodeToString(salt)
 	b64Hash := base64.RawStdEncoding.EncodeToString(hashBytes)
-
 	encodedHash := fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version,
 		p.memory,
@@ -180,46 +179,42 @@ func hashPassword(password string, p *params) (hash string, err error) {
 		b64Salt,
 		b64Hash,
 	)
-
 	return encodedHash, nil
 }
 
-// ユーザ登録DB
+// ユーザー登録DB
 func InsertUser(db *sql.DB, name string, hashStr string, number string, email string, teacher bool) (DB_name string, err error) {
-	name_uuid, err := createUniqueUsername(name)
-	if err != nil {
-		log.Panicln("UUID追加でエラー：%w", err)
-	}
-	//name_uuid := "海音"
-	newID := uuid.New().String() //id用の36文字のUUIDを生成
-	query := `INSERT INTO user (id,name,password,password_group, email,teacher) VALUES (?,?, ?, ?, ?, ?)`
-	result, err := db.Exec(query, newID, name_uuid, hashStr, number, email, teacher)
-	if err != nil {
-		// データベースドライバ固有のエラー型にキャストを試みる
-		var sqliteErr sqlite3.Error
-		// errors.As を使って、エラーチェーンの中に特定のエラー型が含まれているかを確認
-		if errors.As(err, &sqliteErr) {
-			// SQLiteの UNIQUE 違反コードをチェック (コードはドライバによって異なる場合があります)
-			if sqliteErr.Code == sqlite3.ErrConstraint && strings.Contains(sqliteErr.Error(), "UNIQUE constraint failed") {
-				// UNIQUE制約違反が確認された場合の処理
-				InsertUser(db, name, hashStr, number, email, teacher)
-			}
+	const maxRetries = 3
+	newID := uuid.New().String()
+	for i := 0; i < maxRetries; i++ {
+		// ユーザー名 を生成
+		name_uuid, err := createUniqueUsername(name)
+		// 【修正点】: デバッグログとして記録し、パニックを避ける
+		log.Printf("生成されたユーザー名: %s", name_uuid)
+		if err != nil {
+			log.Printf("ユーザー名サフィックス生成エラー: %v", err)
+			return "", err
 		}
-
-		return "", fmt.Errorf("データの挿入に失敗しました: %w", err)
+		query := `INSERT INTO user (id, name, password, password_group, email, teacher) VALUES (?, ?, ?, ?, ?, ?)`
+		result, err := db.Exec(query, newID, name_uuid, hashStr, number, email, teacher)
+		if err == nil {
+			log.Printf("ユーザー登録成功。試行回数: %d, ユーザー名: %s", i+1, name_uuid)
+			// UUIDを使用しているため LastInsertId は不要
+			rowsAffected, _ := result.RowsAffected()
+			log.Printf("影響を受けた行数: %d\n", rowsAffected)
+			return name_uuid, nil
+		}
+		// UNIQUE制約違反であるかを確認
+		var sqliteErr sqlite3.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.Code == sqlite3.ErrConstraint && strings.Contains(sqliteErr.Error(), "UNIQUE constraint failed") {
+			log.Printf("UNIQUE制約違反が発生しました (試行回数: %d)。サフィックスを変えて再試行します。", i+1)
+			continue // ループ継続
+		} else {
+			log.Printf("データベース挿入中に予期せぬエラーが発生しました: %v", err)
+			return "", fmt.Errorf("データベース挿入エラー: %w", err)
+		}
 	}
-
-	// 挿入された行のIDを取得
-	id, err := result.LastInsertId()
-	if err == nil {
-		log.Printf("登録成功！ユーザーID: %d\n", id)
-	}
-
-	// 影響を受けた行数を取得
-	rowsAffected, _ := result.RowsAffected()
-	log.Printf("影響を受けた行数: %d\n", rowsAffected)
-
-	return name_uuid, nil
+	return "", fmt.Errorf("ユーザー名の生成と挿入に%d回失敗しました。この名前では登録できません。", maxRetries)
 }
 
 // ランダムに画像を選択
