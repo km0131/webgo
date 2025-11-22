@@ -6,19 +6,26 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
 	"strconv"
+	"strings"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/mattn/go-sqlite3"
 
 	"encoding/base64"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"golang.org/x/crypto/argon2"
+
+	"github.com/google/uuid"
+	"golang.org/x/text/transform"
+	"golang.org/x/text/unicode/norm"
+	"golang.org/x/text/width"
 )
 
 const sessionKey = "signup_image_list"
@@ -40,16 +47,16 @@ func main() {
 	secret := []byte("your-very-secret-key-that-should-be-long-and-random") // 秘密鍵 (シークレットキー) を設定します。
 	store := cookie.NewStore(secret)                                        // 1. クッキーストアを作成
 	r.Use(sessions.Sessions("mysession", store))                            // 2. セッションミドルウェアをルーターに適用
-	rand.Seed(time.Now().UnixNano())
+	rand.Seed(time.Now().UnixNano())                                        //乱数の生成を初期化
 
-	r.LoadHTMLGlob("frontend/*.html")
-	r.Static("/static", "./image")
-	r.GET("/", func(c *gin.Context) {
+	r.LoadHTMLGlob("frontend/*.html") //HTMLの場所を指定
+	r.Static("/static", "./image")    //画像の場所を指定
+	r.GET("/", func(c *gin.Context) { //一番最初のログイン画面
 		c.HTML(http.StatusOK, "login.html", gin.H{
 			"title": "ログイン画面",
 		})
 	})
-	r.GET("/signup", func(c *gin.Context) {
+	r.GET("/signup", func(c *gin.Context) { //アカウント作成
 		list, name, number, err := Random_image(db) //ランダムに画像のパスを取得
 		if err != nil {
 			log.Fatal("画像リストの生成中にエラーが発生しました:", err)
@@ -60,10 +67,10 @@ func main() {
 		// セッションを取得
 		session := sessions.Default(c)
 		// データを保存
-		session.Set(sessionKey, number)
+		session.Set(sessionKey, number) //表示された画像の番号をセッションに保存
 		// 変更を保存 (これがクッキーとしてクライアントに送信されます)
 		session.Save()
-		c.HTML(http.StatusOK, "signup.html", gin.H{
+		c.HTML(http.StatusOK, "signup.html", gin.H{ //画像のリンクと名前をＨＴＭＬに送信し画面を構築
 			"title":    "新規登録画面",
 			"img":      list,
 			"img_name": name,
@@ -73,32 +80,44 @@ func main() {
 		session := sessions.Default(c)
 		// セッションからデータを取り出し
 		number := session.Get(sessionKey)
-		username := c.PostForm("inputUsername")
-		email := c.PostForm("email")
-		teacher := true
-		password := c.PostFormArray("selected_images[]")
-		if email == "" {
-			email = "null"
-			teacher = false
+		// セッションの値nil チェック
+		if number == nil {
+			log.Println("セッションキーが見つかりません。シリアライズをスキップします。")
+			return
 		}
-
-		if err != nil {
-			// ログ出力や、ユーザーへのエラーメッセージ表示
-			log.Println(err)
+		intnumber, ok := number.([]int) //セッションの値をスライスに変換
+		if !ok {
+			// 型が期待した []int ではない場合の処理
+			log.Printf("ユーザー番号の型が期待通りではありません: 実際の型 %T", intnumber)
+			return
+		}
+		num := serializeIntSlice(intnumber)              //DBに保存する為にスライスを文字列に変更
+		username := c.PostForm("inputUsername")          //ユーザー名
+		email := c.PostForm("email")                     //メールアドレス
+		teacher := true                                  //生徒か先生か？初期値は先生
+		password := c.PostFormArray("selected_images[]") //パスワードとして選択した画像の名前を取得
+		if email == "" {                                 //メールアドレスが空の場合は生徒なので生徒に変更
+			email = "null"  //DB保存の為NULLを設定
+			teacher = false //生徒に変更
 		}
 		count := 3
-		password_1 := ""
-		for i := 0; i < count; i++ {
+		password_1 := ""             //DBに保存する文字列の関数
+		for i := 0; i < count; i++ { //値を取り出して文字列として保存
 			password_1 += password[i]
 		}
-		hashPassword_1, err := hashPassword(password_1, defaultParams) //ハッシュ化（Argon2）使用
+		hashPassword_1, err := hashPassword(password_1, defaultParams) //文字列に変換したパスワードをハッシュ化（Argon2）使用
+		if err != nil {
+			// エラー処理
+			log.Fatal(err)
+		}
+		DB_name, err := InsertUser(db, username, hashPassword_1, num, email, teacher) //DBに保存
 		if err != nil {
 			// エラー処理
 			log.Fatal(err)
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"message":      "ユーザー登録リクエストを受信しました",
-			"user":         username,
+			"user":         DB_name,
 			"email":        email,
 			"teacher":      teacher,
 			"password":     password,
@@ -166,11 +185,28 @@ func hashPassword(password string, p *params) (hash string, err error) {
 }
 
 // ユーザ登録DB
-func InsertUser(db *sql.DB, name string, hashStr string, number string, email string, teacher bool) error {
-	query := `INSERT INTO user (name,password,password_group, email,teacher) VALUES (?, ?, ?, ?, ?)`
-	result, err := db.Exec(query, name, hashStr, number, email, teacher)
+func InsertUser(db *sql.DB, name string, hashStr string, number string, email string, teacher bool) (DB_name string, err error) {
+	name_uuid, err := createUniqueUsername(name)
 	if err != nil {
-		return fmt.Errorf("データの挿入に失敗しました: %w", err)
+		log.Panicln("UUID追加でエラー：%w", err)
+	}
+	//name_uuid := "海音"
+	newID := uuid.New().String() //id用の36文字のUUIDを生成
+	query := `INSERT INTO user (id,name,password,password_group, email,teacher) VALUES (?,?, ?, ?, ?, ?)`
+	result, err := db.Exec(query, newID, name_uuid, hashStr, number, email, teacher)
+	if err != nil {
+		// データベースドライバ固有のエラー型にキャストを試みる
+		var sqliteErr sqlite3.Error
+		// errors.As を使って、エラーチェーンの中に特定のエラー型が含まれているかを確認
+		if errors.As(err, &sqliteErr) {
+			// SQLiteの UNIQUE 違反コードをチェック (コードはドライバによって異なる場合があります)
+			if sqliteErr.Code == sqlite3.ErrConstraint && strings.Contains(sqliteErr.Error(), "UNIQUE constraint failed") {
+				// UNIQUE制約違反が確認された場合の処理
+				InsertUser(db, name, hashStr, number, email, teacher)
+			}
+		}
+
+		return "", fmt.Errorf("データの挿入に失敗しました: %w", err)
 	}
 
 	// 挿入された行のIDを取得
@@ -183,7 +219,7 @@ func InsertUser(db *sql.DB, name string, hashStr string, number string, email st
 	rowsAffected, _ := result.RowsAffected()
 	log.Printf("影響を受けた行数: %d\n", rowsAffected)
 
-	return nil
+	return name_uuid, nil
 }
 
 // ランダムに画像を選択
@@ -197,7 +233,7 @@ func Random_image(db *sql.DB) ([]string, []string, []int, error) {
 		candidates[i], candidates[j] = candidates[j], candidates[i]
 	}) //リストをランダムに並び替える
 	number := candidates[:10]
-	list, name, err := Image_DB(db, number)
+	list, name, err := Image_DB(db, number) //画像リンクと名前を取得
 	if err != nil {
 		log.Fatal("画像リストのDB検索でエラーが出ました。:", err)
 	}
@@ -211,9 +247,9 @@ func Image_DB(db *sql.DB, number []int) ([]string, []string, error) {
 	name := make([]string, 0, selectionCount)
 	for i := 0; i < selectionCount; i++ {
 		imageID := number[i]
-		r := "static/certification/" + strconv.Itoa(imageID) + ".png"
+		r := "static/certification/" + strconv.Itoa(imageID) + ".png" //画像絵リンクの作成
 		var fetchedName string
-		query := `SELECT name FROM certification WHERE id = ?`
+		query := `SELECT name FROM certification WHERE id = ?` //DBから画像の名前を取得
 		err := db.QueryRow(query, imageID).Scan(&fetchedName)
 		if err != nil {
 			// 取得エラーが発生した場合、エラーを返し、スライスはnilにする
@@ -223,4 +259,71 @@ func Image_DB(db *sql.DB, number []int) ([]string, []string, error) {
 		name = append(name, fetchedName)
 	}
 	return list, name, nil
+}
+
+// 文字を結合[1,2,3] => "1,2,3"(DB保存の為)
+func serializeIntSlice(slice []int) string {
+	strSlice := make([]string, len(slice))
+	//各要素を文字列に変換
+	for i, num := range slice {
+		strSlice[i] = strconv.Itoa(num)
+	}
+	//カンマで結合
+	return strings.Join(strSlice, ",")
+}
+
+// 名前の一意性を保つために4桁のUUIDを生成し追加
+func createUniqueUsername(desiredName string) (string, error) {
+	// ユーザー名の長さ制限に合わせて、希望の名前を正規化/短縮する
+	normalizedName, err := normalizeJapaneseUsername(desiredName)
+	if err != nil {
+		log.Panicln("正規化でエラー%w", err)
+	}
+	// ４文字のランダムなサフィックスを生成
+	suffix, err := generateRandomSuffix(4)
+	if err != nil {
+		return "", err
+	}
+	// 結合して最終的なユーザー名を生成 (例: tanaka-h7v8xPzM)
+	finalUsername := fmt.Sprintf("%s-%s", normalizedName, suffix)
+	// DBのUNIQUE制約と競合した場合は、呼び出し元でこの関数を再試行するロジックが必要
+	return finalUsername, nil
+}
+
+// 一意性を保つための複合正規化処理
+func normalizeJapaneseUsername(desiredName string) (string, error) {
+	// 濁音とかを処理して半角に
+	t := transform.Chain(norm.NFKC, width.Fold)
+	output, _, err := transform.String(t, desiredName)
+	if err != nil {
+		return "", err
+	}
+	// 英字部分を小文字に統一する
+	normalizedName := strings.ToLower(output)
+	// 空白や制御文字の除去 (必要に応じて)
+	normalizedName = strings.TrimSpace(normalizedName)
+	return normalizedName, nil
+}
+
+// UUIDの生成名前用
+func generateRandomSuffix(length int) (string, error) {
+	// ターゲット長に合わせて、必要なランダムバイト数を決定
+	// Base64は通常、3バイトを4文字に変換するため、必要なバイト数を計算する
+	byteLength := (length * 3) / 4
+	randomBytes := make([]byte, byteLength)
+	//crypto/rand で安全な乱数バイトを生成
+	_, err := rand.Read(randomBytes)
+	if err != nil {
+		return "", fmt.Errorf("乱数生成エラー: %w", err)
+	}
+	// Base64 (RawURLEncoding) でエンコードし、特殊文字を排除
+	// RawURLEncoding は +, /, = を含まないため、URLやユーザー名に安全
+	encoded := base64.RawURLEncoding.EncodeToString(randomBytes)
+	// 指定された長さで切り取り、返却
+	// 指定長より短くなる可能性があるため、Min関数で安全に切り取る
+	if len(encoded) > length {
+		return encoded[:length], nil
+	}
+	// 十分な長さが得られなかった場合もそのまま返す（安全性を優先）
+	return encoded, nil
 }
