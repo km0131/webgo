@@ -5,16 +5,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"database/sql"
-	"errors"
 	"fmt"
 	"log"
 	"math/rand"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/mattn/go-sqlite3"
 
 	"encoding/base64"
 
@@ -26,22 +22,38 @@ import (
 	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
 	"golang.org/x/text/width"
+
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 const sessionKey = "signup_image_list"
 
-func main() {
-	db, err := sql.Open("sqlite3", "./web.sqlite3") //データベースを開く
-	if err != nil {
-		log.Fatal("sql.Openでエラー:", err)
-	}
-	defer db.Close() //データベースを閉じる
-	err = db.Ping()
-	if err != nil {
-		log.Fatal("db.Pingでエラー:", err)
-	}
+type user struct {
+	ID            string         `gorm:"type:VARCHAR(36) PRIMARY KEY"` // ID(UUID)を使用
+	CreatedAt     time.Time      //作成日時
+	UpdatedAt     time.Time      //更新日時
+	DeletedAt     gorm.DeletedAt `gorm:"index"`                      //倫理削除
+	Name          string         `gorm:"type:text;unique;not null"`  // TEXT UNIQUE NOT NULL 名前
+	Password      string         `gorm:"type:varchar(255);not null"` // VARCHAR(255) NOT NULL パスワード
+	PasswordGroup string         `gorm:"type:text;not null"`         // TEXT NOT NULL 画像のグループ
+	Email         string         `gorm:"type:text"`                  // TEXT メール（生徒は登録しないためNULLを許容）
+	Teacher       bool           `gorm:"type:boolean;not null"`      // BOOLEAN NOT NULL 生徒か生徒かを登録
+}
 
-	fmt.Println("SQLite DBに接続しました")
+type certification struct {
+	ID   uint   `gorm:"primaryKey"` //画像番号
+	Name string `gorm:"not null"`   //画像の名前
+}
+
+func main() {
+	//データベースに接続
+	db, err := gorm.Open(sqlite.Open("web.sqlite3"), &gorm.Config{})
+	if err != nil {
+		log.Fatal("データベースへの接続に失敗しました:", err)
+	}
+	db.AutoMigrate(&user{}, certification{})
+	fmt.Println("テーブル 'use', 'certification' のマイグレーションが完了しました。")
 
 	r := gin.Default()
 	secret := []byte("your-very-secret-key-that-should-be-long-and-random") // 秘密鍵 (シークレットキー) を設定します。
@@ -183,42 +195,49 @@ func hashPassword(password string, p *params) (hash string, err error) {
 }
 
 // ユーザー登録DB
-func InsertUser(db *sql.DB, name string, hashStr string, number string, email string, teacher bool) (DB_name string, err error) {
+func InsertUser(db *gorm.DB, name string, hashStr string, number string, email string, teacher bool) (DB_name string, err error) {
 	const maxRetries = 3
 	newID := uuid.New().String()
 	for i := 0; i < maxRetries; i++ {
 		// ユーザー名 を生成
 		name_uuid, err := createUniqueUsername(name)
-		// 【修正点】: デバッグログとして記録し、パニックを避ける
+		// デバッグログとして記録し、パニックを避ける
 		log.Printf("生成されたユーザー名: %s", name_uuid)
 		if err != nil {
 			log.Printf("ユーザー名サフィックス生成エラー: %v", err)
 			return "", err
 		}
-		query := `INSERT INTO user (id, name, password, password_group, email, teacher) VALUES (?, ?, ?, ?, ?, ?)`
-		result, err := db.Exec(query, newID, name_uuid, hashStr, number, email, teacher)
-		if err == nil {
-			log.Printf("ユーザー登録成功。試行回数: %d, ユーザー名: %s", i+1, name_uuid)
-			// UUIDを使用しているため LastInsertId は不要
-			rowsAffected, _ := result.RowsAffected()
-			log.Printf("影響を受けた行数: %d\n", rowsAffected)
-			return name_uuid, nil
+		newName := user{
+			ID:            newID,
+			Name:          name_uuid,
+			Password:      hashStr,
+			PasswordGroup: number,
+			Email:         email,
+			Teacher:       teacher,
 		}
-		// UNIQUE制約違反であるかを確認
-		var sqliteErr sqlite3.Error
-		if errors.As(err, &sqliteErr) && sqliteErr.Code == sqlite3.ErrConstraint && strings.Contains(sqliteErr.Error(), "UNIQUE constraint failed") {
-			log.Printf("UNIQUE制約違反が発生しました (試行回数: %d)。サフィックスを変えて再試行します。", i+1)
-			continue // ループ継続
-		} else {
-			log.Printf("データベース挿入中に予期せぬエラーが発生しました: %v", err)
-			return "", fmt.Errorf("データベース挿入エラー: %w", err)
+		result := db.Create(&newName)
+		// 挿入後のエラーチェックを追加
+		if result.Error != nil {
+			// ログに出力し、処理を中断するか、エラーレスポンスを返す
+			log.Printf("挿入試行 %d 回目失敗: %v", i+1, result.Error)
+			continue
+		}
+
+		if result.RowsAffected > 0 {
+			log.Printf("ユーザー名 %s で挿入に成功しました。", newName.Name)
+			return newName.Name, nil // 成功したので、生成されたユーザー名を返して終了
+		}
+
+		// 影響を受けた行数が0でないかも確認できる
+		if result.RowsAffected == 0 {
+			log.Println("警告: 挿入された行数が0でした。")
 		}
 	}
 	return "", fmt.Errorf("ユーザー名の生成と挿入に%d回失敗しました。この名前では登録できません。", maxRetries)
 }
 
 // ランダムに画像を選択
-func Random_image(db *sql.DB) ([]string, []string, []int, error) {
+func Random_image(db *gorm.DB) ([]string, []string, []int, error) {
 	const totalCount = 30
 	candidates := make([]int, totalCount)
 	for i := 0; i < totalCount; i++ {
@@ -236,22 +255,29 @@ func Random_image(db *sql.DB) ([]string, []string, []int, error) {
 }
 
 // 画像番号からリンクとDB検索を行う
-func Image_DB(db *sql.DB, number []int) ([]string, []string, error) {
+func Image_DB(db *gorm.DB, number []int) ([]string, []string, error) {
+	var count int64
+	db.Model(&certification{}).Count(&count)
+	fmt.Printf("現在のCertificationテーブルのレコード総数: %d\n", count)
+	var fetchedCertifications []certification
+	result := db.Where("id IN ?", number).Find(&fetchedCertifications) //１回で全てのデータを取得
+	if result.Error != nil {
+		// IDが無い
+		return nil, nil, fmt.Errorf("指定IDリストのデータ取得に失敗しました: %w", result.Error)
+	}
 	const selectionCount = 10
 	list := make([]string, 0, selectionCount)
 	name := make([]string, 0, selectionCount)
-	for i := 0; i < selectionCount; i++ {
-		imageID := number[i]
-		r := "static/certification/" + strconv.Itoa(imageID) + ".png" //画像絵リンクの作成
-		var fetchedName string
-		query := `SELECT name FROM certification WHERE id = ?` //DBから画像の名前を取得
-		err := db.QueryRow(query, imageID).Scan(&fetchedName)
-		if err != nil {
-			// 取得エラーが発生した場合、エラーを返し、スライスはnilにする
-			return nil, nil, fmt.Errorf("ID %d のデータ取得に失敗しました: %w", imageID, err)
-		}
-		list = append(list, r)
-		name = append(name, fetchedName)
+	for _, i := range fetchedCertifications {
+		imageIDStr := strconv.Itoa(int(i.ID))
+		r := "static/certification/" + imageIDStr + ".png" // 画像リンクの作成
+		list = append(list, r)                             //画像のパスをリストに追加
+		name = append(name, i.Name)                        // 画像の名前をリストに追加
+	}
+	// 取得した数が必要な数と異なるときのチェック
+	if len(fetchedCertifications) != len(number) {
+		// ランダムに選ばれたIDの一部が見つからなかった
+		log.Printf("警告: 期待値 %d 件に対し、取得件数は %d 件でした。", len(number), len(fetchedCertifications))
 	}
 	return list, name, nil
 }

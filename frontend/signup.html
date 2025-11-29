@@ -62,13 +62,15 @@
             box-shadow: 0 0 10px rgba(0, 123, 255, 0.5);
         }
 
-        #student-image-gallery, #teacher-image-gallery {
+        #student-image-gallery,
+        #teacher-image-gallery {
             display: flex;
             flex-wrap: wrap;
             justify-content: center;
             gap: 10px;
             margin-bottom: 1rem;
         }
+
         /* 1. 標準のチェックボックスを非表示にする */
         .image-checkbox {
             /* 絶対に非表示にし、レイアウトに影響を与えないようにする */
@@ -80,16 +82,21 @@
 
         /* 2. 画像の初期スタイル */
         .selectable-image {
-            cursor: pointer; /* マウスオーバー時にクリック可能であることを示す */
-            border: 4px solid transparent; /* 初期状態では透明な枠線 */
-            transition: border-color 0.2s, box-shadow 0.2s; /* 変化を滑らかにする */
+            cursor: pointer;
+            /* マウスオーバー時にクリック可能であることを示す */
+            border: 4px solid transparent;
+            /* 初期状態では透明な枠線 */
+            transition: border-color 0.2s, box-shadow 0.2s;
+            /* 変化を滑らかにする */
         }
 
         /* 3. 画像が選択された（チェックボックスがチェックされた）時のスタイル */
         /* input:checked + label .selectable-image の組み合わせで、チェックされたinputの直後のlabel内の画像を選択 */
-        .image-checkbox:checked + label .selectable-image {
-            border-color: #007bff; /* 例: 青い枠線 */
-            box-shadow: 0 0 10px rgba(0, 123, 255, 0.5); /* 例: 影を付ける */
+        .image-checkbox:checked+label .selectable-image {
+            border-color: #007bff;
+            /* 例: 青い枠線 */
+            box-shadow: 0 0 10px rgba(0, 123, 255, 0.5);
+            /* 例: 影を付ける */
             /* 必要に応じて、背景を薄く変えるなども効果的です */
         }
     </style>
@@ -133,21 +140,12 @@
                                 <div id="student-image-gallery">
                                     {{range $index, $path := .img}}
                                     <div class="image-choice-container">
-                                        <input 
-                                            type="checkbox" 
-                                            id="student-img-{{$index}}" 
-                                            name="selected_images[]" 
-                                            value="{{index $.img_name $index}}"
-                                            class="image-checkbox"
-                                        >
-                                        
+                                        <input type="checkbox" id="student-img-{{$index}}" name="selected_images[]"
+                                            value="{{index $.img_name $index}}" class="image-checkbox">
+
                                         <label for="student-img-{{$index}}">
-                                            <img 
-                                                src="{{$path}}" 
-                                                data-id="{{index $.img_name $index}}" 
-                                                class="selectable-image"
-                                                alt="パスワード画像"
-                                            >
+                                            <img src="{{$path}}" data-id="{{index $.img_name $index}}"
+                                                class="selectable-image" alt="パスワード画像">
                                         </label>
                                     </div>
                                     {{end}}
@@ -188,21 +186,12 @@
                                 <div id="teacher-image-gallery">
                                     {{range $index, $path := .img}}
                                     <div class="image-choice-container">
-                                        <input 
-                                            type="checkbox" 
-                                            id="img-{{$index}}" 
-                                            name="selected_images[]" 
-                                            value="{{index $.img_name $index}}"
-                                            class="image-checkbox"
-                                        >
-                                        
+                                        <input type="checkbox" id="img-{{$index}}" name="selected_images[]"
+                                            value="{{index $.img_name $index}}" class="image-checkbox">
+
                                         <label for="img-{{$index}}">
-                                            <img 
-                                                src="{{$path}}" 
-                                                data-id="{{index $.img_name $index}}" 
-                                                class="selectable-image"
-                                                alt="パスワード画像"
-                                            >
+                                            <img src="{{$path}}" data-id="{{index $.img_name $index}}"
+                                                class="selectable-image" alt="パスワード画像">
                                         </label>
                                     </div>
                                     {{end}}
