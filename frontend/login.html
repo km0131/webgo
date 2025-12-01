@@ -28,6 +28,11 @@
         <div class="card login-card">
             <div class="card-body">
                 <h3 class="card-title text-center mb-4">ログイン</h3>
+                {{if .ErrorMessage}}
+                    <p style="color: red; border: 1px solid red; padding: 10px;">
+                        {{.ErrorMessage}}
+                    </p>
+                {{end}}
                 <form action="/" method="POST">
                     <div class="mb-3">
                         <label for="inputEmail" class="form-label">

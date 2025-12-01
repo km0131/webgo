@@ -46,6 +46,11 @@ type certification struct { //セキュリティー用画像のDB
 	Name string `gorm:"not null"`   //画像の名前
 }
 
+// テンプレートに渡すデータ構造
+type LoginPageData struct {
+	ErrorMessage string // エラーメッセージ
+}
+
 func main() {
 	//データベースに接続
 	db, err := gorm.Open(sqlite.Open("web.sqlite3"), &gorm.Config{})
@@ -76,9 +81,16 @@ func main() {
 			// IDが無い
 			log.Fatal("指定IDリストのデータ取得に失敗しました: %w", result.Error)
 		}
-		stringValues := strings.Split(fetcheduser.PasswordGroup, ",")
+		if result.RowsAffected == 0 { //ユーザが登録されていない。
+			fmt.Println("指定されたユーザー名が見つかりませんでした。")
+			c.HTML(http.StatusOK, "login.html", LoginPageData{
+				ErrorMessage: "入力されたユーザー名は存在しません。再度確認してください。",
+			})
+			return
+		}
+		stringValues := strings.Split(fetcheduser.PasswordGroup, ",") //スライス型の為に”、”で分割
 		var number []int
-		for _, s := range stringValues {
+		for _, s := range stringValues { //画像番号のスライスを作成
 			i, err := strconv.Atoi(strings.TrimSpace(s))
 			if err != nil {
 				// エラー処理 (変換できない値が含まれていた場合)
