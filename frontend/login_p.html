@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>画像パスワードログイン画面</title>
+    <!-- Tailwind CSSを読み込み (Bootstrapの代わりに軽量でモダンなスタイルを実現) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'primary-blue': '#0d6efd',
+                        'bg-light': '#f8f9fa',
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        /* ベースとなるコンテナスタイル */
+        .login-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem 0;
+            background-color: #f8f9fa; /* 背景色を薄いグレーに設定 */
+        }
+
+        /* カードスタイル */
+        .login-card {
+            width: 100%;
+            max-width: 420px;
+            padding: 30px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, .1); /* 影を強調 */
+            border-radius: 0.75rem; /* 角丸を適用 */
+            background-color: white;
+        }
+
+        /* 画像選択エリアのスタイル */
+        .image-gallery {
+            /* 修正点: FlexboxからGridに変更し、常に2列(1fr 1fr)で表示されるように設定 */
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* 2つの均等な列を作成 */
+            gap: 10px; /* 画像間のスペース */
+            margin-bottom: 1.5rem;
+        }
+        
+        /* 画像をギャラリー内で中央揃えにするためのコンテナ */
+        .image-choice-container {
+            display: flex;
+            justify-content: center; /* 画像を中央に配置 */
+        }
+
+        /* 1. 標準のチェックボックスを非表示にする */
+        .image-checkbox {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        /* 2. 画像の初期スタイル */
+        .selectable-image {
+            width: 150px; /* 2列表示に合うように幅を調整 */
+            height: 150px; /* 2列表示に合うように高さを調整 */
+            object-fit: cover;
+            cursor: pointer;
+            border: 4px solid transparent; /* 初期状態では透明な枠線 */
+            border-radius: 8px; /* 角丸を適用 */
+            transition: border-color 0.2s, box-shadow 0.2s, transform 0.1s;
+        }
+        
+        /* ホバー時の視覚的フィードバック */
+        .selectable-image:hover {
+            transform: scale(1.02);
+            box-shadow: 0 0 8px rgba(0, 0, 0, 0.2);
+        }
+
+        /* 3. 画像が選択された（チェックボックスがチェックされた）時のスタイル */
+        .image-checkbox:checked + label .selectable-image {
+            border-color: #0d6efd; /* プライマリブルー */
+            box-shadow: 0 0 15px rgba(13, 110, 253, 0.7); /* 影を付ける */
+            transform: scale(1.05);
+        }
+        
+        /* メッセージ表示エリアの最小高さを確保 */
+        #match_message {
+            min-height: 1.5rem;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div>
+                <h3 class="text-center text-2xl font-bold mb-8 text-primary-blue">🔐 ログイン</h3>
+                
+                <form id="loginForm" action="#" method="POST">
+                    <!-- 画像パスワード選択 -->
+                    <label class="block text-gray-700 font-semibold mb-3">
+                        🔏 画像パスワード (3つの画像を選択してください)
+                    </label>
+                    
+                    <div id="image-gallery" class="image-gallery">
+                        <!-- Go言語のテンプレート構文に戻します -->
+                        {{range $index, $path := .img}}
+                            <div class="image-choice-container">
+                                <input type="checkbox" id="student-img-{{$index}}" name="selected_images[]"
+                                    value="{{index $.img_name $index}}" class="image-checkbox">
+                                <label for="student-img-{{$index}}">
+                                    <img src="{{$path}}" data-id="{{index $.img_name $index}}"
+                                        class="selectable-image" alt="パスワード画像">
+                                </label>
+                            </div>
+                        {{end}}
+                    </div>
+                    
+                    <!-- メッセージ表示エリア -->
+                    <p id="match_message" class="text-center font-semibold text-gray-500 mb-6">選択中の画像: 0/3枚</p>
+
+                    <!-- ログインボタン -->
+                    <div class="d-grid mb-6">
+                        <button type="submit" class="w-full bg-primary-blue hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition duration-150" id="loginSubmitBtn">
+                            ログインする
+                        </button>
+                    </div>
+                </form>
+                
+                <hr class="my-6 border-gray-300">
+
+                <!-- 関連リンク -->
+                <div class="text-center">
+                    <a href="/" class="block text-sm text-primary-blue hover:text-blue-700 font-semibold transition duration-150">
+                        ログイン画面
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            /**
+             * 画像選択フォームの送信を検証し、3枚選択されているかを確認する関数
+             * @param {string} formSelector - 対象フォームのCSSセレクタ
+             * @param {string} messageSelector - メッセージを表示する要素のCSSセレクタ
+             */
+            function validateImageSelection(formSelector, messageSelector) {
+                const form = document.querySelector(formSelector);
+                const messageElement = document.querySelector(messageSelector);
+
+                if (!form || !messageElement) return;
+
+                form.addEventListener('submit', function (event) {
+                    // フォーム内のチェックされたチェックボックスを取得
+                    const selectedImages = form.querySelectorAll('.image-checkbox:checked');
+
+                    // デフォルトの送信を一旦停止
+                    event.preventDefault();
+
+                    messageElement.textContent = ''; // メッセージをクリア
+
+                    if (selectedImages.length < 3) {
+                        messageElement.textContent = '選択された画像が少なすぎます。(3つ選択してください)';
+                        messageElement.style.color = 'red';
+                    } else if (selectedImages.length > 3) {
+                        // このルートはchangeリスナーでブロックされているはずだが、念のため
+                        messageElement.textContent = '選択された画像が多すぎます。(3つ選択してください)';
+                        messageElement.style.color = 'red';
+                    } else {
+                        // バリデーション成功
+                        messageElement.textContent = '画像を3枚選択しました。ログイン処理を実行します...';
+                        messageElement.style.color = 'green';
+                        form.submit();
+                    }
+                });
+
+                // 選択枚数をリアルタイムでチェックし、最大3枚に制限するリスナー
+                const checkboxes = form.querySelectorAll('.image-checkbox');
+                checkboxes.forEach(checkbox => {
+                    checkbox.addEventListener('change', () => {
+                        const count = form.querySelectorAll('.image-checkbox:checked').length;
+                        
+                        if (count > 3) {
+                            // 4枚目以降の選択をブロック
+                            checkbox.checked = false;
+                            messageElement.textContent = '選択できる画像は最大3枚までです。';
+                            messageElement.style.color = 'red';
+                        } else if (count === 3) {
+                            messageElement.textContent = '画像が3つ選択されました。ログイン可能です。';
+                            messageElement.style.color = 'green';
+                        } else {
+                            messageElement.textContent = `選択中の画像: ${count}/3枚`;
+                            messageElement.style.color = 'gray';
+                        }
+                    });
+                });
+            }
+
+            // ログインフォームのバリデーションをセットアップ
+            validateImageSelection('#loginForm', '#match_message');
+        });
+    </script>
+</body>
+</html>

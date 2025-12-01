@@ -29,7 +29,7 @@ import (
 
 const sessionKey = "signup_image_list"
 
-type user struct {
+type user struct { //ユーザ登録のDB
 	ID            string         `gorm:"type:VARCHAR(36) PRIMARY KEY"` // ID(UUID)を使用
 	CreatedAt     time.Time      //作成日時
 	UpdatedAt     time.Time      //更新日時
@@ -41,7 +41,7 @@ type user struct {
 	Teacher       bool           `gorm:"type:boolean;not null"`      // BOOLEAN NOT NULL 生徒か生徒かを登録
 }
 
-type certification struct {
+type certification struct { //セキュリティー用画像のDB
 	ID   uint   `gorm:"primaryKey"` //画像番号
 	Name string `gorm:"not null"`   //画像の名前
 }
@@ -66,6 +66,35 @@ func main() {
 	r.GET("/", func(c *gin.Context) { //一番最初のログイン画面
 		c.HTML(http.StatusOK, "login.html", gin.H{
 			"title": "ログイン画面",
+		})
+	})
+	r.POST("/", func(c *gin.Context) {
+		username := c.PostForm("inputUsername")
+		var fetcheduser user
+		result := db.Where("name = ?", username).Find(&fetcheduser)
+		if result.Error != nil {
+			// IDが無い
+			log.Fatal("指定IDリストのデータ取得に失敗しました: %w", result.Error)
+		}
+		stringValues := strings.Split(fetcheduser.PasswordGroup, ",")
+		var number []int
+		for _, s := range stringValues {
+			i, err := strconv.Atoi(strings.TrimSpace(s))
+			if err != nil {
+				// エラー処理 (変換できない値が含まれていた場合)
+				fmt.Printf("数値への変換に失敗: %v\n", err)
+				continue
+			}
+			number = append(number, i)
+		}
+		fmt.Println("スライス化された値:", number)
+		list, name, err := Image_DB(db, number) //画像リンクと名前を取得
+		if err != nil {
+			log.Fatal("画像リストのDB検索でエラーが出ました。:", err)
+		}
+		c.HTML(http.StatusOK, "login_p.html", gin.H{
+			"img":      list,
+			"img_name": name,
 		})
 	})
 	r.GET("/signup", func(c *gin.Context) { //アカウント作成
@@ -256,9 +285,6 @@ func Random_image(db *gorm.DB) ([]string, []string, []int, error) {
 
 // 画像番号からリンクとDB検索を行う
 func Image_DB(db *gorm.DB, number []int) ([]string, []string, error) {
-	var count int64
-	db.Model(&certification{}).Count(&count)
-	fmt.Printf("現在のCertificationテーブルのレコード総数: %d\n", count)
 	var fetchedCertifications []certification
 	result := db.Where("id IN ?", number).Find(&fetchedCertifications) //１回で全てのデータを取得
 	if result.Error != nil {

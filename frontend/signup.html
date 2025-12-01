@@ -46,13 +46,13 @@
         }
 
         .selectable-image {
-            width: 150px;
-            height: 150px;
+            width: 150px; /* 2列表示に合うように幅を調整 */
+            height: 150px; /* 2列表示に合うように高さを調整 */
+            object-fit: cover;
             cursor: pointer;
-            /* マウスカーソルをポインターにしてクリックできることを示す */
-            border: 3px solid transparent;
-            /* 初期状態では枠線は透明 */
-            transition: border 0.2s;
+            border: 4px solid transparent; /* 初期状態では透明な枠線 */
+            border-radius: 8px; /* 角丸を適用 */
+            transition: border-color 0.2s, box-shadow 0.2s, transform 0.1s;
         }
 
         /* 選択された画像に適用するスタイル */
@@ -64,11 +64,11 @@
 
         #student-image-gallery,
         #teacher-image-gallery {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 10px;
-            margin-bottom: 1rem;
+            /* 修正点: FlexboxからGridに変更し、常に2列(1fr 1fr)で表示されるように設定 */
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* 2つの均等な列を作成 */
+            gap: 10px; /* 画像間のスペース */
+            margin-bottom: 1.5rem;
         }
 
         /* 1. 標準のチェックボックスを非表示にする */
@@ -240,18 +240,42 @@
                     // デフォルトの送信を一旦停止
                     event.preventDefault();
 
+                    messageElement.textContent = ''; // メッセージをクリア
+
                     if (selectedImages.length < 3) {
                         messageElement.textContent = '選択された画像が少なすぎます。(3つ選択してください)';
                         messageElement.style.color = 'red';
                     } else if (selectedImages.length > 3) {
+                        // このルートはchangeリスナーでブロックされているはずだが、念のため
                         messageElement.textContent = '選択された画像が多すぎます。(3つ選択してください)';
                         messageElement.style.color = 'red';
                     } else {
                         // バリデーション成功
-                        messageElement.textContent = '';
-                        // フォームを送信
+                        messageElement.textContent = '画像を3枚選択しました。アカウントを新規作成します。';
+                        messageElement.style.color = 'green';
                         form.submit();
                     }
+                });
+
+                // 選択枚数をリアルタイムでチェックし、最大3枚に制限するリスナー
+                const checkboxes = form.querySelectorAll('.image-checkbox');
+                checkboxes.forEach(checkbox => {
+                    checkbox.addEventListener('change', () => {
+                        const count = form.querySelectorAll('.image-checkbox:checked').length;
+                        
+                        if (count > 3) {
+                            // 4枚目以降の選択をブロック
+                            checkbox.checked = false;
+                            messageElement.textContent = '選択できる画像は最大3枚までです。';
+                            messageElement.style.color = 'red';
+                        } else if (count === 3) {
+                            messageElement.textContent = '画像が3つ選択されました。ログイン可能です。';
+                            messageElement.style.color = 'green';
+                        } else {
+                            messageElement.textContent = `選択中の画像: ${count}/3枚`;
+                            messageElement.style.color = 'gray';
+                        }
+                    });
                 });
             }
 

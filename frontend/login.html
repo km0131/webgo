@@ -28,24 +28,12 @@
         <div class="card login-card">
             <div class="card-body">
                 <h3 class="card-title text-center mb-4">ログイン</h3>
-                <form>
+                <form action="/" method="POST">
                     <div class="mb-3">
                         <label for="inputEmail" class="form-label">
                             👤ユーザー名
                         </label>
-                        <input type="email" class="form-control" id="inputEmail" aria-describedby="emailHelp" required>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="inputPassword" class="form-label">
-                            🔑パスワード
-                        </label>
-                        <div class="input-group">
-                            <input type="password" class="form-control" id="inputPassword" name="password" required autocomplete="new-password">
-                            <button class="btn btn-outline-secondary" type="button" id="togglePasswordBtn" aria-label="パスワード表示切り替え">
-                                <span id="togglePasswordIcon">🔒</span>
-                            </button>
-                        </div>
+                        <input type="text" class="form-control" id="studentUsername" name="inputUsername" aria-describedby="emailHelp" required>
                     </div>
 
                     <div class="d-grid gap-2">
@@ -69,25 +57,6 @@
         </div>
         </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-        function setupPasswordToggle(inputId, buttonId, iconId) {
-            const input = document.getElementById(inputId);
-            const button = document.getElementById(buttonId);
-            const icon = document.getElementById(iconId);
-
-            if (!input || !button || !icon) return;
-
-            button.addEventListener('click', function() {
-                const isPassword = input.type === 'password';
-                input.type = isPassword ? 'text' : 'password';
-                icon.textContent = isPassword ? '🔓' : '🔒';
-            });
-        }
-        // パスワード表示切り替え機能をセットアップ
-        setupPasswordToggle('inputPassword', 'togglePasswordBtn', 'togglePasswordIcon');
-        });
-    </script>
 
 </body>
 </html>
