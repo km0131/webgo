@@ -1,11 +1,13 @@
 package main
 
 import (
+	"embed"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"fmt"
+	"io/fs"
 	"log"
 	"math/rand"
 	"strconv"
@@ -25,9 +27,14 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+
+	"github.com/skip2/go-qrcode"
 )
 
 const sessionKey = "signup_image_list"
+
+//go:embed out/*
+var reactApp embed.FS
 
 type user struct { //ユーザ登録のDB
 	ID            string         `gorm:"type:VARCHAR(36) PRIMARY KEY"` // ID(UUID)を使用
@@ -51,6 +58,19 @@ type LoginPageData struct {
 	ErrorMessage string // エラーメッセージ
 }
 
+// ログインリクエスト用の構造体
+type LoginRequest struct {
+	Username string `json:"inputUsername"`
+}
+
+// データ登録用の構造体
+type RegisterRequest struct {
+	Username string   `json:"username"`
+	Role     string   `json:"role"`
+	Images   []string `json:"images"` // これが「上から順」のラベルリスト
+	Email    string   `json:"email"`  // 先生の場合のみ
+}
+
 func main() {
 	//データベースに接続
 	db, err := gorm.Open(sqlite.Open("web.sqlite3"), &gorm.Config{})
@@ -66,119 +86,182 @@ func main() {
 	r.Use(sessions.Sessions("mysession", store))                            // 2. セッションミドルウェアをルーターに適用
 	rand.Seed(time.Now().UnixNano())                                        //乱数の生成を初期化
 
-	r.LoadHTMLGlob("frontend/*.html") //HTMLの場所を指定
-	r.Static("/static", "./image")    //画像の場所を指定
-	r.GET("/", func(c *gin.Context) { //一番最初のログイン画面
-		c.HTML(http.StatusOK, "login.html", gin.H{
-			"title": "ログイン画面",
-		})
-	})
-	r.POST("/", func(c *gin.Context) {
-		username := c.PostForm("inputUsername")
-		var fetcheduser user
-		result := db.Where("name = ?", username).Find(&fetcheduser)
-		if result.Error != nil {
-			// IDが無い
-			log.Fatal("指定IDリストのデータ取得に失敗しました: %w", result.Error)
-		}
-		if result.RowsAffected == 0 { //ユーザが登録されていない。
-			fmt.Println("指定されたユーザー名が見つかりませんでした。")
-			c.HTML(http.StatusOK, "login.html", LoginPageData{
-				ErrorMessage: "入力されたユーザー名は存在しません。再度確認してください。",
-			})
+	// 1. embedしたファイルから "out" フォルダの中身を取り出す
+	staticFiles, err := fs.Sub(reactApp, "out")
+	if err != nil {
+		log.Fatal("Failed to sub out directory:", err)
+	}
+
+	// 3. ルートアクセスやその他のパスを制御
+	r.NoRoute(func(c *gin.Context) {
+		path := c.Request.URL.Path
+
+		// リクエストされたファイルが embed 内に存在するか確認
+		// なければ index.html を返す (SPAルーティング)
+		_, err := staticFiles.Open(strings.TrimPrefix(path, "/"))
+		if err != nil {
+			c.FileFromFS("/", http.FS(staticFiles))
 			return
 		}
-		stringValues := strings.Split(fetcheduser.PasswordGroup, ",") //スライス型の為に”、”で分割
-		var number []int
-		for _, s := range stringValues { //画像番号のスライスを作成
-			i, err := strconv.Atoi(strings.TrimSpace(s))
-			if err != nil {
-				// エラー処理 (変換できない値が含まれていた場合)
-				fmt.Printf("数値への変換に失敗: %v\n", err)
-				continue
+	})
+
+	api := r.Group("/api")
+
+	{
+		api.POST("/login", func(c *gin.Context) {
+			var req LoginRequest
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "リクエスト形式が正しくありません"})
+				return
 			}
-			number = append(number, i)
-		}
-		fmt.Println("スライス化された値:", number)
-		list, name, err := Image_DB(db, number) //画像リンクと名前を取得
-		if err != nil {
-			log.Fatal("画像リストのDB検索でエラーが出ました。:", err)
-		}
-		c.HTML(http.StatusOK, "login_p.html", gin.H{
-			"img":      list,
-			"img_name": name,
+
+			var fetcheduser user
+			result := db.Where("name = ?", req.Username).Find(&fetcheduser)
+
+			// 1. ユーザーが存在しない場合
+			if result.Error != nil || result.RowsAffected == 0 {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "入力されたユーザー名は存在しません。"})
+				return
+			}
+
+			// 2. パスワード用画像番号のパース（既存ロジック）
+			stringValues := strings.Split(fetcheduser.PasswordGroup, ",")
+			var number []int
+			for _, s := range stringValues {
+				if i, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
+					number = append(number, i)
+				}
+			}
+
+			// 3. 画像データ取得（既存のImage_DBを使用）
+			list, name, err := Image_DB(db, number)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "画像データの取得に失敗しました"})
+				return
+			}
+
+			// 4. セッションにユーザー名を一時保存（次の認証ステップ用）
+			session := sessions.Default(c)
+			session.Set("pending_user", req.Username)
+			session.Save()
+
+			// 5. 次の画面で必要なデータをJSONで返す
+			c.JSON(http.StatusOK, gin.H{
+				"status":   "next_step",
+				"img_list": list,
+				"img_name": name,
+			})
 		})
-	})
-	r.GET("/signup", func(c *gin.Context) { //アカウント作成
-		list, name, number, err := Random_image(db) //ランダムに画像のパスを取得
-		if err != nil {
-			log.Fatal("画像リストの生成中にエラーが発生しました:", err)
-		}
-		fmt.Println(list)
-		fmt.Println(name)
-		fmt.Println(number)
-		// セッションを取得
-		session := sessions.Default(c)
-		// データを保存
-		session.Set(sessionKey, number) //表示された画像の番号をセッションに保存
-		// 変更を保存 (これがクッキーとしてクライアントに送信されます)
-		session.Save()
-		c.HTML(http.StatusOK, "signup.html", gin.H{ //画像のリンクと名前をＨＴＭＬに送信し画面を構築
-			"title":    "新規登録画面",
-			"img":      list,
-			"img_name": name,
+		api.POST("/signup", func(c *gin.Context) { //アカウント作成
+			list, name, number, err := Random_image(db) //ランダムに画像のパスを取得
+			if err != nil {
+				log.Fatal("画像リストの生成中にエラーが発生しました:", err)
+			}
+			fmt.Println(list)
+			fmt.Println(name)
+			fmt.Println(number)
+			// セッションを取得
+			session := sessions.Default(c)
+			// データを保存
+			session.Set(sessionKey, number) //表示された画像の番号をセッションに保存
+			// 変更を保存 (これがクッキーとしてクライアントに送信されます)
+			session.Save()
+
+			c.JSON(http.StatusOK, gin.H{
+				"status":   "next_step",
+				"img_list": list,
+				"img_name": name,
+			})
+
 		})
-	})
-	r.POST("/signup", func(c *gin.Context) { //フォームをDBに保存
-		session := sessions.Default(c)
-		// セッションからデータを取り出し
-		number := session.Get(sessionKey)
-		// セッションの値nil チェック
-		if number == nil {
-			log.Println("セッションキーが見つかりません。シリアライズをスキップします。")
+
+		api.POST("/register", func(c *gin.Context) { //データを登録
+			var req RegisterRequest
+			// 1. JSONデータを構造体にバインド（読み込み）
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "無効なデータ形式です"})
+				return
+			}
+			// 2. セッションから「提示した画像の正解セット」を取得する場合（照合が必要なら）
+			session := sessions.Default(c)
+			number := session.Get(sessionKey)
+			fmt.Println("提示していた画像番号:", number)
+			// セッションの値nil チェック
+			if number == nil {
+				log.Println("セッションキーが見つかりません。シリアライズをスキップします。")
+				return
+			}
+			intnumber, ok := number.([]int) //セッションの値をスライスに変換
+			if !ok {
+				// 型が期待した []int ではない場合の処理
+				log.Printf("ユーザー番号の型が期待通りではありません: 実際の型 %T", intnumber)
+				return
+			}
+
+			num := serializeIntSlice(intnumber) //DBに保存する為にスライスを文字列に変更
+			username := req.Username            //ユーザー名
+			email := req.Email                  //メールアドレス
+			teacher := true                     //生徒か先生か？初期値は先生
+			password := req.Images              //パスワードとして選択した画像の名前を取得
+			if email == "" {                    //メールアドレスが空の場合は生徒なので生徒に変更
+				email = "null"  //DB保存の為NULLを設定
+				teacher = false //生徒に変更
+			}
+
+			count := 3
+			password_1 := ""             //DBに保存する文字列の関数
+			for i := 0; i < count; i++ { //値を取り出して文字列として保存
+				password_1 += password[i]
+			}
+			hashPassword_1, err := hashPassword(password_1, defaultParams) //文字列に変換したパスワードをハッシュ化（Argon2）使用
+			if err != nil {
+				// エラー処理
+				log.Fatal(err)
+			}
+			Name, err := InsertUser(db, username, hashPassword_1, num, email, teacher) //DBに保存
+			if err != nil {
+				// エラー処理
+				log.Fatal(err)
+			}
+
+			QR, err := GetQRCode(Name, hashPassword_1)
+			if err != nil {
+				// エラー処理
+				log.Fatal(err)
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"status":  "success",
+				"message": "ユーザー登録が完了しました",
+				"QR":      QR,
+				"ID":      Name,
+				"name":    username,
+				"teacher": teacher,
+			})
+
+		})
+
+	}
+
+	// C. Next.jsの内部ファイル配信
+	r.StaticFS("/_next", http.FS(staticFiles))
+
+	r.Static("/static", "./image") //画像の場所を指定
+
+	// D. ルート（/）および全パスの制御
+	// これを一番最後に書くことで、API以外のリクエストを全てReactに流します
+	r.NoRoute(func(c *gin.Context) {
+		path := c.Request.URL.Path
+		// ファイルが存在すればそれを返し、なければ index.html を返す
+		f, err := staticFiles.Open(strings.TrimPrefix(path, "/"))
+		if err != nil {
+			c.FileFromFS("/", http.FS(staticFiles))
 			return
 		}
-		intnumber, ok := number.([]int) //セッションの値をスライスに変換
-		if !ok {
-			// 型が期待した []int ではない場合の処理
-			log.Printf("ユーザー番号の型が期待通りではありません: 実際の型 %T", intnumber)
-			return
-		}
-		num := serializeIntSlice(intnumber)              //DBに保存する為にスライスを文字列に変更
-		username := c.PostForm("inputUsername")          //ユーザー名
-		email := c.PostForm("email")                     //メールアドレス
-		teacher := true                                  //生徒か先生か？初期値は先生
-		password := c.PostFormArray("selected_images[]") //パスワードとして選択した画像の名前を取得
-		if email == "" {                                 //メールアドレスが空の場合は生徒なので生徒に変更
-			email = "null"  //DB保存の為NULLを設定
-			teacher = false //生徒に変更
-		}
-		count := 3
-		password_1 := ""             //DBに保存する文字列の関数
-		for i := 0; i < count; i++ { //値を取り出して文字列として保存
-			password_1 += password[i]
-		}
-		hashPassword_1, err := hashPassword(password_1, defaultParams) //文字列に変換したパスワードをハッシュ化（Argon2）使用
-		if err != nil {
-			// エラー処理
-			log.Fatal(err)
-		}
-		DB_name, err := InsertUser(db, username, hashPassword_1, num, email, teacher) //DBに保存
-		if err != nil {
-			// エラー処理
-			log.Fatal(err)
-		}
-		c.JSON(http.StatusOK, gin.H{
-			"message":      "ユーザー登録リクエストを受信しました",
-			"user":         DB_name,
-			"email":        email,
-			"teacher":      teacher,
-			"password":     password,
-			"password_1":   password_1,
-			"number":       number,
-			"hashPassword": hashPassword_1,
-		})
+		f.Close()
+		c.FileFromFS(path, http.FS(staticFiles))
 	})
+
 	r.Run(":8080")
 }
 
@@ -287,7 +370,7 @@ func Random_image(db *gorm.DB) ([]string, []string, []int, error) {
 	rand.Shuffle(len(candidates), func(i, j int) {
 		candidates[i], candidates[j] = candidates[j], candidates[i]
 	}) //リストをランダムに並び替える
-	number := candidates[:10]
+	number := candidates[:12]
 	list, name, err := Image_DB(db, number) //画像リンクと名前を取得
 	if err != nil {
 		log.Fatal("画像リストのDB検索でエラーが出ました。:", err)
@@ -366,23 +449,33 @@ func normalizeJapaneseUsername(desiredName string) (string, error) {
 
 // UUIDの生成名前用
 func generateRandomSuffix(length int) (string, error) {
-	// ターゲット長に合わせて、必要なランダムバイト数を決定
-	// Base64は通常、3バイトを4文字に変換するため、必要なバイト数を計算する
-	byteLength := (length * 3) / 4
-	randomBytes := make([]byte, byteLength)
-	//crypto/rand で安全な乱数バイトを生成
-	_, err := rand.Read(randomBytes)
+	// 1. 乱数の種（シード）を設定（これがないと毎回同じ文字列になります）
+	rand.Seed(time.Now().UnixNano())
+
+	// 使用を許可する文字（英数字のみ）
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+	result := make([]byte, length)
+	for i := 0; i < length; i++ {
+		// 2. rand.Intn は値を1つだけ返却します
+		index := rand.Intn(len(charset))
+		result[i] = charset[index]
+	}
+
+	return string(result), nil
+}
+
+// QRコードのBase64形式作成
+func GetQRCode(ID string, password string) (string, error) {
+	qrContent := fmt.Sprintf("ID=%s,pass=%s", ID, password)
+	// QRコード生成 (256x256ピクセル)
+	png, err := qrcode.Encode(qrContent, qrcode.Medium, 256)
 	if err != nil {
-		return "", fmt.Errorf("乱数生成エラー: %w", err)
+		log.Panicln("QRコード作成でエラー", err)
 	}
-	// Base64 (RawURLEncoding) でエンコードし、特殊文字を排除
-	// RawURLEncoding は +, /, = を含まないため、URLやユーザー名に安全
-	encoded := base64.RawURLEncoding.EncodeToString(randomBytes)
-	// 指定された長さで切り取り、返却
-	// 指定長より短くなる可能性があるため、Min関数で安全に切り取る
-	if len(encoded) > length {
-		return encoded[:length], nil
-	}
-	// 十分な長さが得られなかった場合もそのまま返す（安全性を優先）
+
+	// Base64にエンコードしてレスポンス
+	encoded := base64.StdEncoding.EncodeToString(png)
+
 	return encoded, nil
 }
