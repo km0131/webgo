@@ -1,15 +1,21 @@
 package main
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"embed"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
-	"math/rand"
+
+	"math/big"
 	"os"
 	"strconv"
 	"strings"
@@ -97,7 +103,6 @@ func main() {
 	secret := []byte("your-very-secret-key-that-should-be-long-and-random") // 秘密鍵 (シークレットキー) を設定します。
 	store := cookie.NewStore(secret)                                        // 1. クッキーストアを作成
 	r.Use(sessions.Sessions("mysession", store))                            // 2. セッションミドルウェアをルーターに適用
-	rand.Seed(time.Now().UnixNano())                                        //乱数の生成を初期化
 
 	// 1. embedしたファイルから "out" フォルダの中身を取り出す
 	staticFiles, err := fs.Sub(reactApp, "out")
@@ -118,7 +123,7 @@ func main() {
 		}
 	})
 
-	api := r.Group("/api")
+	api := r.Group("/api") //具体的な処理
 
 	{
 		api.POST("/login", func(c *gin.Context) {
@@ -243,6 +248,7 @@ func main() {
 			for i := 0; i < count; i++ { //値を取り出して文字列として保存
 				password_1 += password[i]
 			}
+
 			hashPassword_1, err := hashPassword(password_1, defaultParams) //文字列に変換したパスワードをハッシュ化（Argon2）使用
 			if err != nil {
 				// エラー処理
@@ -254,7 +260,9 @@ func main() {
 				log.Fatal(err)
 			}
 
-			QR, err := GetQRCode(Name, hashPassword_1)
+			plaintext, err := Encrypt(password_1) //パスワードを複合化可能な（AES-256-GCM）を使用
+
+			QR, err := GetQRCode(Name, plaintext) //QRコードの作成
 			if err != nil {
 				// エラー処理
 				log.Fatal(err)
@@ -393,18 +401,36 @@ func InsertUser(db *gorm.DB, name string, hashStr string, number string, email s
 // ランダムに画像を選択
 func Random_image(db *gorm.DB) ([]string, []string, []int, error) {
 	const totalCount = 30
+	const selectCount = 12
+
+	// 1. 1から30までのリストを作成
 	candidates := make([]int, totalCount)
 	for i := 0; i < totalCount; i++ {
 		candidates[i] = i + 1
-	} //１から３０までのリストを作成
-	rand.Shuffle(len(candidates), func(i, j int) {
-		candidates[i], candidates[j] = candidates[j], candidates[i]
-	}) //リストをランダムに並び替える
-	number := candidates[:12]
-	list, name, err := Image_DB(db, number) //画像リンクと名前を取得
-	if err != nil {
-		log.Fatal("画像リストのDB検索でエラーが出ました。:", err)
 	}
+
+	// 2. crypto/rand を使ったフィッシャー・イェーツ・シャッフル
+	for i := len(candidates) - 1; i > 0; i-- {
+		// 0 から i までのランダムなインデックスを選択
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		j := int(n.Int64())
+		// 要素を入れ替える
+		candidates[i], candidates[j] = candidates[j], candidates[i]
+	}
+
+	// 3. 先頭の12個を取り出す
+	number := candidates[:selectCount]
+
+	// 4. 画像リンクと名前を取得
+	list, name, err := Image_DB(db, number)
+	if err != nil {
+		// log.Fatalを使うとサーバーが止まるので、実運用ではエラーを返すのが一般的です
+		return nil, nil, nil, fmt.Errorf("画像リストのDB検索エラー: %w", err)
+	}
+
 	return list, name, number, nil
 }
 
@@ -479,17 +505,16 @@ func normalizeJapaneseUsername(desiredName string) (string, error) {
 
 // UUIDの生成名前用
 func generateRandomSuffix(length int) (string, error) {
-	// 1. 乱数の種（シード）を設定（これがないと毎回同じ文字列になります）
-	rand.Seed(time.Now().UnixNano())
-
-	// 使用を許可する文字（英数字のみ）
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
 	result := make([]byte, length)
+
 	for i := 0; i < length; i++ {
-		// 2. rand.Intn は値を1つだけ返却します
-		index := rand.Intn(len(charset))
-		result[i] = charset[index]
+		// charsetの長さに基づいた安全な乱数を生成
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			return "", err
+		}
+		result[i] = charset[num.Int64()]
 	}
 
 	return string(result), nil
@@ -508,4 +533,35 @@ func GetQRCode(ID string, password string) (string, error) {
 	encoded := base64.StdEncoding.EncodeToString(png)
 
 	return encoded, nil
+}
+
+func Encrypt(plaintext string) (string, error) { //パスワードを暗号化
+	// 環境変数から32バイトの鍵を取得
+	keyStr := os.Getenv("APP_MASTER_KEY")
+	// opensslで生成したBase64形式をデコードして32バイトのバイナリにする
+	key, err := base64.StdEncoding.DecodeString(keyStr)
+	if err != nil || len(key) != 32 {
+		return "", errors.New("invalid master key: must be 32 bytes (base64)")
+	}
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+
+	// ナンス（12バイト）をランダム生成
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+
+	// 暗号化実行。ナンスを先頭にくっつけて返す（gcm.Sealの第1引数がプレフィックスになる）
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
