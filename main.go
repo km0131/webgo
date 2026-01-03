@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log"
 	"math/rand"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -63,6 +64,12 @@ type LoginRequest struct {
 	Username string `json:"inputUsername"`
 }
 
+// ログインパスワード照合
+type LoginRegistrer struct {
+	Username string   `json:"username"`
+	Images   []string `json:"images"`
+}
+
 // データ登録用の構造体
 type RegisterRequest struct {
 	Username string   `json:"username"`
@@ -72,6 +79,12 @@ type RegisterRequest struct {
 }
 
 func main() {
+	key := os.Getenv("APP_MASTER_KEY") //環境変数に登録したQR暗号化のカギ
+	if key == "" {
+		fmt.Println("エラー: 環境変数が設定されていません")
+	} else {
+		fmt.Printf("成功: 鍵の長さは %d 文字です\n", len(key))
+	}
 	//データベースに接続
 	db, err := gorm.Open(sqlite.Open("web.sqlite3"), &gorm.Config{})
 	if err != nil {
@@ -151,6 +164,23 @@ func main() {
 				"img_list": list,
 				"img_name": name,
 			})
+		})
+		api.POST("/login_registrer", func(c *gin.Context) { //ログインパスワード照合
+			var req LoginRegistrer
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "リクエスト形式が正しくありません"})
+				return
+			}
+			session := sessions.Default(c)
+			name := session.Get("pending_user")
+			fmt.Println("ユーザ名:", name)
+			// セッションの値nil チェック
+			if name == nil {
+				log.Println("セッションキーが見つかりません。シリアライズをスキップします。")
+				return
+			}
+			fmt.Println("選んだ画像:", req.Images)
+
 		})
 		api.POST("/signup", func(c *gin.Context) { //アカウント作成
 			list, name, number, err := Random_image(db) //ランダムに画像のパスを取得
