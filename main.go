@@ -1,11 +1,9 @@
 package main
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
+	"crypto/subtle"
 	"embed"
-	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -22,6 +20,7 @@ import (
 	"time"
 
 	"encoding/base64"
+	"encoding/hex"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
@@ -53,6 +52,7 @@ type user struct { //ユーザ登録のDB
 	PasswordGroup string         `gorm:"type:text;not null"`         // TEXT NOT NULL 画像のグループ
 	Email         string         `gorm:"type:text"`                  // TEXT メール（生徒は登録しないためNULLを許容）
 	Teacher       bool           `gorm:"type:boolean;not null"`      // BOOLEAN NOT NULL 生徒か生徒かを登録
+	QRpassword    string         `gorm:"type:varchar(255);not null"` // VARCHAR(255) NOT NULL QRパスワード
 }
 
 type certification struct { //セキュリティー用画像のDB
@@ -184,8 +184,28 @@ func main() {
 				log.Println("セッションキーが見つかりません。シリアライズをスキップします。")
 				return
 			}
-			fmt.Println("選んだ画像:", req.Images)
+			count := 3
+			password_1 := ""             //パスワード
+			for i := 0; i < count; i++ { //値を取り出して文字列として保存
+				password_1 += req.Images[i]
+			}
+			db_hashStr, err := GetUser(db, name.(string))
+			if err != nil {
+				log.Printf("ユーザー取得失敗: %v", err)
+				return
+			}
 
+			password_2, err := ComparePassword(password_1, db_hashStr)
+			if err != nil {
+				log.Println("パスワードが一致しません")
+				return
+			}
+			fmt.Println("パスワード照合結果:", password_2)
+
+			c.JSON(http.StatusOK, gin.H{
+				"status":   "password",
+				"password": password_2,
+			})
 		})
 		api.POST("/signup", func(c *gin.Context) { //アカウント作成
 			list, name, number, err := Random_image(db) //ランダムに画像のパスを取得
@@ -250,19 +270,19 @@ func main() {
 			}
 
 			hashPassword_1, err := hashPassword(password_1, defaultParams) //文字列に変換したパスワードをハッシュ化（Argon2）使用
+			qrToken := generateRandomToken()                               //QRコード用のランダムなパスワード
+
+			hashQRToken, err := hashPassword(qrToken, defaultParams) //QRパスワードをハッシュ化（Argon2）使用
 			if err != nil {
 				// エラー処理
 				log.Fatal(err)
 			}
-			Name, err := InsertUser(db, username, hashPassword_1, num, email, teacher) //DBに保存
+			Name, err := InsertUser(db, username, hashPassword_1, num, email, teacher, hashQRToken) //DBに保存
 			if err != nil {
 				// エラー処理
 				log.Fatal(err)
 			}
-
-			plaintext, err := Encrypt(password_1) //パスワードを複合化可能な（AES-256-GCM）を使用
-
-			QR, err := GetQRCode(Name, plaintext) //QRコードの作成
+			QR, err := GetQRCode(Name, qrToken) //QRコードの作成
 			if err != nil {
 				// エラー処理
 				log.Fatal(err)
@@ -277,8 +297,9 @@ func main() {
 				"teacher": teacher,
 			})
 
-		})
+			fmt.Println("QRコード作成完了")
 
+		})
 	}
 
 	// C. Next.jsの内部ファイル配信
@@ -356,8 +377,69 @@ func hashPassword(password string, p *params) (hash string, err error) {
 	return encodedHash, nil
 }
 
+var (
+	ErrInvalidHash         = errors.New("保存されたハッシュの形式が正しくありません")
+	ErrIncompatibleVersion = errors.New("Argon2のバージョンが互換性がありません")
+)
+
+func ComparePassword(password, encodedHash string) (bool, error) { //ハッシュ化したパスワードと入力したパスワードが正しいか照合
+	// 1. 保存された文字列を分解
+	// 形式: $argon2id$v=19$m=65536,t=3,p=2$salt$hash
+	parts := strings.Split(encodedHash, "$")
+	if len(parts) != 6 {
+		return false, ErrInvalidHash
+	}
+
+	// 2. バージョンの確認
+	var version int
+	_, err := fmt.Sscanf(parts[2], "v=%d", &version)
+	if err != nil {
+		return false, err
+	}
+	if version != argon2.Version {
+		return false, ErrIncompatibleVersion
+	}
+
+	// 3. パラメータ（m, t, p）の抽出
+	var p params
+	_, err = fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &p.memory, &p.iterations, &p.parallelism)
+	if err != nil {
+		return false, err
+	}
+
+	// 4. ソルトとハッシュをBase64からデコード
+	salt, err := base64.RawStdEncoding.DecodeString(parts[4]) //ソルト
+	if err != nil {
+		return false, err
+	}
+
+	decodedHash, err := base64.RawStdEncoding.DecodeString(parts[5]) //ハッシュ
+	if err != nil {
+		return false, err
+	}
+	p.keyLength = uint32(len(decodedHash))
+
+	// 5. 同じソルトとパラメータで再度ハッシュ計算を行う
+	comparisonHash := argon2.IDKey(
+		[]byte(password),
+		salt,
+		p.iterations,
+		p.memory,
+		p.parallelism,
+		p.keyLength,
+	)
+
+	// 6. 計算したハッシュと保存されていたハッシュを「一定時間」で比較
+	// (通常の == 比較だと計算時間の差でパスワードが推測されるリスクがあるため)
+	if subtle.ConstantTimeCompare(decodedHash, comparisonHash) == 1 {
+		return true, nil
+	}
+
+	return false, nil
+}
+
 // ユーザー登録DB
-func InsertUser(db *gorm.DB, name string, hashStr string, number string, email string, teacher bool) (DB_name string, err error) {
+func InsertUser(db *gorm.DB, name string, hashStr string, number string, email string, teacher bool, QRhashStr string) (DB_name string, err error) {
 	const maxRetries = 3
 	newID := uuid.New().String()
 	for i := 0; i < maxRetries; i++ {
@@ -376,6 +458,7 @@ func InsertUser(db *gorm.DB, name string, hashStr string, number string, email s
 			PasswordGroup: number,
 			Email:         email,
 			Teacher:       teacher,
+			QRpassword:    QRhashStr,
 		}
 		result := db.Create(&newName)
 		// 挿入後のエラーチェックを追加
@@ -396,6 +479,25 @@ func InsertUser(db *gorm.DB, name string, hashStr string, number string, email s
 		}
 	}
 	return "", fmt.Errorf("ユーザー名の生成と挿入に%d回失敗しました。この名前では登録できません。", maxRetries)
+}
+
+func GetUser(db *gorm.DB, Id string) (hashStr string, err error) {
+	// 1. 格納するための構造体を用意
+	var retrievedUser user
+
+	// 2. 検索実行（引数の Id を使って検索するように修正）
+	// result 変数に結果を格納してエラーチェックを行うのが一般的です
+	result := db.Where("name = ?", Id).First(&retrievedUser)
+
+	// 3. エラーハンドリング
+	if result.Error != nil {
+		// データが見つからない、または接続エラーなどの場合
+		return "", result.Error
+	}
+
+	// 4. 正しい値を返す
+	// 第1戻り値にパスワード（文字列）、第2戻り値に nil（エラーなし）
+	return retrievedUser.Password, nil
 }
 
 // ランダムに画像を選択
@@ -522,7 +624,7 @@ func generateRandomSuffix(length int) (string, error) {
 
 // QRコードのBase64形式作成
 func GetQRCode(ID string, password string) (string, error) {
-	qrContent := fmt.Sprintf("ID=%s,pass=%s", ID, password)
+	qrContent := fmt.Sprintf("$ID=%s$pass=%s", ID, password)
 	// QRコード生成 (256x256ピクセル)
 	png, err := qrcode.Encode(qrContent, qrcode.Medium, 256)
 	if err != nil {
@@ -535,33 +637,8 @@ func GetQRCode(ID string, password string) (string, error) {
 	return encoded, nil
 }
 
-func Encrypt(plaintext string) (string, error) { //パスワードを暗号化
-	// 環境変数から32バイトの鍵を取得
-	keyStr := os.Getenv("APP_MASTER_KEY")
-	// opensslで生成したBase64形式をデコードして32バイトのバイナリにする
-	key, err := base64.StdEncoding.DecodeString(keyStr)
-	if err != nil || len(key) != 32 {
-		return "", errors.New("invalid master key: must be 32 bytes (base64)")
-	}
-
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-
-	// ナンス（12バイト）をランダム生成
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", err
-	}
-
-	// 暗号化実行。ナンスを先頭にくっつけて返す（gcm.Sealの第1引数がプレフィックスになる）
-	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
-
-	return base64.StdEncoding.EncodeToString(ciphertext), nil
+func generateRandomToken() string {
+	b := make([]byte, 16) // 16バイトのランダム値
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
