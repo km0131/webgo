@@ -1,0 +1,5 @@
+1:"$Sreact.fragment"
+2:I[97367,["/_next/static/chunks/ff1a16fafef87110.js","/_next/static/chunks/7340adf74ff47ec0.js"],"OutletBoundary"]
+3:"$Sreact.suspense"
+0:{"buildId":"T-VKU3EwtT-FbR6K2qnW8","rsc":["$","$1","c",{"children":[["$","div",null,{"style":{"display":"flex","flexDirection":"column","alignItems":"center","justifyContent":"center","height":"100vh","fontSize":"2rem"},"children":[["$","h1",null,{"children":"ログイン成功！"}],["$","p",null,{"children":"ここが main room です。"}]]}],null,["$","$L2",null,{"children":["$","$3",null,{"name":"Next.MetadataOutlet","children":"$@4"}]}]]}],"loading":null,"isPartial":false}
+4:null

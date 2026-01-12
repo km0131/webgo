@@ -60,6 +60,26 @@ type certification struct { //セキュリティー用画像のDB
 	Name string `gorm:"not null"`   //画像の名前
 }
 
+type Course struct { //クラス用のDB
+	// ID	自動採番される主キー (Primary Key)
+	// CreatedAt	データが作成された日時を自動記録
+	// UpdatedAt	データが更新された日時を自動記録
+	// DeletedAt	論理削除（後述）のためのフラグ
+	// 自動追加　めっちゃ便利
+	gorm.Model
+	Title       string `gorm:"not null"` // クラス名
+	Description string // 説明
+	InviteCode  string `gorm:"unique;not null;index"` // 参加コード (一意の文字列 / 重複不可)
+	TeacherID   uint   `gorm:"index"`                 // 担任教師のID (UsersテーブルのIDを参照する外部キー想定)
+}
+
+type Enrollment struct { //履修者用DB
+	gorm.Model           // 自動追加　めっちゃ便利
+	CourseID   uint      `gorm:"not null;index"` // クラスid
+	StudentID  uint      `gorm:"not null;index"` // 生徒id
+	EnrolledAt time.Time `gorm:"autoCreateTime"` //参加日時
+}
+
 // テンプレートに渡すデータ構造
 type LoginPageData struct {
 	ErrorMessage string // エラーメッセージ
@@ -74,6 +94,11 @@ type LoginRequest struct {
 type LoginRegistrer struct {
 	Username string   `json:"username"`
 	Images   []string `json:"images"`
+}
+
+// QRコードログイン照合
+type QRRegistrer struct {
+	QR string `json:"qr_data"`
 }
 
 // データ登録用の構造体
@@ -189,7 +214,7 @@ func main() {
 			for i := 0; i < count; i++ { //値を取り出して文字列として保存
 				password_1 += req.Images[i]
 			}
-			db_hashStr, err := GetUser(db, name.(string))
+			db_hashStr, err := GetUser(db, name.(string), false)
 			if err != nil {
 				log.Printf("ユーザー取得失敗: %v", err)
 				return
@@ -205,6 +230,36 @@ func main() {
 			c.JSON(http.StatusOK, gin.H{
 				"status":   "password",
 				"password": password_2,
+			})
+		})
+		api.POST("/login_qr", func(c *gin.Context) {
+			var req QRRegistrer
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "リクエスト形式が正しくありません"})
+				return
+			}
+			// 形式: $ID=tesuto-E50t$pass=976b2b1dc7249a5aa4b569bbb7f9efd8
+			parts := strings.Split(req.QR, "$")
+			if len(parts) != 3 {
+				log.Printf("QRの分解に失敗")
+				return
+			}
+			userName := strings.Replace(parts[1], "ID=", "", 1)
+			db_hashStr, err := GetUser(db, userName, true)
+			if err != nil {
+				log.Printf("ユーザー取得失敗: %v", err)
+				return
+			}
+			password := strings.Replace(parts[2], "pass=", "", 1)
+			password_2, err := ComparePassword(password, db_hashStr)
+			if err != nil {
+				log.Println("パスワードが一致しません")
+				return
+			}
+			fmt.Println("パスワード照合結果:", password_2)
+			c.JSON(http.StatusOK, gin.H{
+				"status": "QR_Registrer",
+				"QR":     password_2,
 			})
 		})
 		api.POST("/signup", func(c *gin.Context) { //アカウント作成
@@ -481,7 +536,7 @@ func InsertUser(db *gorm.DB, name string, hashStr string, number string, email s
 	return "", fmt.Errorf("ユーザー名の生成と挿入に%d回失敗しました。この名前では登録できません。", maxRetries)
 }
 
-func GetUser(db *gorm.DB, Id string) (hashStr string, err error) {
+func GetUser(db *gorm.DB, Id string, qr bool) (hashStr string, err error) {
 	// 1. 格納するための構造体を用意
 	var retrievedUser user
 
@@ -497,7 +552,11 @@ func GetUser(db *gorm.DB, Id string) (hashStr string, err error) {
 
 	// 4. 正しい値を返す
 	// 第1戻り値にパスワード（文字列）、第2戻り値に nil（エラーなし）
-	return retrievedUser.Password, nil
+	if qr {
+		return retrievedUser.QRpassword, nil
+	} else {
+		return retrievedUser.Password, nil
+	}
 }
 
 // ランダムに画像を選択
