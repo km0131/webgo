@@ -135,19 +135,6 @@ func main() {
 		log.Fatal("Failed to sub out directory:", err)
 	}
 
-	// 3. ルートアクセスやその他のパスを制御
-	r.NoRoute(func(c *gin.Context) {
-		path := c.Request.URL.Path
-
-		// リクエストされたファイルが embed 内に存在するか確認
-		// なければ index.html を返す (SPAルーティング)
-		_, err := staticFiles.Open(strings.TrimPrefix(path, "/"))
-		if err != nil {
-			c.FileFromFS("/", http.FS(staticFiles))
-			return
-		}
-	})
-
 	api := r.Group("/api") //具体的な処理
 
 	{
@@ -369,7 +356,7 @@ func main() {
 		// ファイルが存在すればそれを返し、なければ index.html を返す
 		f, err := staticFiles.Open(strings.TrimPrefix(path, "/"))
 		if err != nil {
-			c.FileFromFS("/", http.FS(staticFiles))
+			c.FileFromFS(path, http.FS(staticFiles))
 			return
 		}
 		f.Close()
