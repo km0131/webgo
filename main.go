@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"embed"
+	mrand "math/rand" // math/rand に 'mrand' という別名をつける
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -70,14 +71,16 @@ type Course struct { //クラス用のDB
 	Title       string `gorm:"not null"` // クラス名
 	Description string // 説明
 	InviteCode  string `gorm:"unique;not null;index"` // 参加コード (一意の文字列 / 重複不可)
-	TeacherID   uint   `gorm:"index"`                 // 担任教師のID (UsersテーブルのIDを参照する外部キー想定)
+	TeacherID   string `gorm:"index"`                 // 担任教師のID (UsersテーブルのIDを参照する外部キー想定)
+	Teacher     user   `gorm:"foreignKey:TeacherID"`  //教師IDを使ってuserのデータを検索して取り出せる。便利
+	ThemeColor  string //クラスのカラーコード
 }
 
 type Enrollment struct { //履修者用DB
-	gorm.Model           // 自動追加　めっちゃ便利
-	CourseID   uint      `gorm:"not null;index"` // クラスid
-	StudentID  uint      `gorm:"not null;index"` // 生徒id
-	EnrolledAt time.Time `gorm:"autoCreateTime"` //参加日時
+	gorm.Model        // 自動追加　めっちゃ便利
+	CourseID   uint   `gorm:"not null;index"`      // クラスid
+	StudentID  string `gorm:"not null;index"`      // 生徒id
+	Course     Course `gorm:"foreignKey:CourseID"` //生徒IDを使ってcourseのデータを検索して取り出せる。便利
 }
 
 // テンプレートに渡すデータ構造
@@ -109,6 +112,21 @@ type RegisterRequest struct {
 	Email    string   `json:"email"`  // 先生の場合のみ
 }
 
+// クラス作成用のデータ構造体
+type CreateClassRequest struct {
+	Title       string `json:"className"`
+	Description string `json:"description"`
+}
+
+// 参加しているクラスの返却用構造体
+type CourseResponse struct {
+	ID          uint   `json:"id"`
+	ClassName   string `json:"className"`
+	TeacherName string `json:"teacherName"`
+	Description string `json:"description"`
+	ThemeColor  string `json:"themeColor"`
+}
+
 func main() {
 	key := os.Getenv("APP_MASTER_KEY") //環境変数に登録したQR暗号化のカギ
 	if key == "" {
@@ -121,8 +139,13 @@ func main() {
 	if err != nil {
 		log.Fatal("データベースへの接続に失敗しました:", err)
 	}
-	db.AutoMigrate(&user{}, certification{})
-	fmt.Println("テーブル 'use', 'certification' のマイグレーションが完了しました。")
+	db.AutoMigrate(
+		&user{},
+		&certification{},
+		&Course{},
+		&Enrollment{},
+	)
+	fmt.Println("テーブルのマイグレーションが完了しました。")
 
 	r := gin.Default()
 	secret := []byte("your-very-secret-key-that-should-be-long-and-random") // 秘密鍵 (シークレットキー) を設定します。
@@ -212,6 +235,10 @@ func main() {
 				log.Println("パスワードが一致しません")
 				return
 			}
+			if err := LoginUser(db, c, name.(string)); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "セッション保存失敗"})
+				return
+			}
 			fmt.Println("パスワード照合結果:", password_2)
 
 			c.JSON(http.StatusOK, gin.H{
@@ -219,7 +246,7 @@ func main() {
 				"password": password_2,
 			})
 		})
-		api.POST("/login_qr", func(c *gin.Context) {
+		api.POST("/login_qr", func(c *gin.Context) { //QRログイン
 			var req QRRegistrer
 			if err := c.ShouldBindJSON(&req); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "リクエスト形式が正しくありません"})
@@ -241,6 +268,11 @@ func main() {
 			password_2, err := ComparePassword(password, db_hashStr)
 			if err != nil {
 				log.Println("パスワードが一致しません")
+				return
+			}
+			// 関数を呼び出すだけ！
+			if err := LoginUser(db, c, userName); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "セッション保存失敗"})
 				return
 			}
 			fmt.Println("パスワード照合結果:", password_2)
@@ -340,6 +372,164 @@ func main() {
 			})
 
 			fmt.Println("QRコード作成完了")
+
+		})
+		api.GET("/session", func(c *gin.Context) {
+			session := sessions.Default(c)
+
+			// セッションから値を取得
+			id := session.Get("user_id")
+			name := session.Get("user_nam")
+			teacherVal := session.Get("user_teacher")
+
+			// ログインチェック
+			if id == nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "ログインしていません"})
+				return
+			}
+
+			var role string
+			// 型アサーションを bool に変更
+			if t, ok := teacherVal.(bool); ok {
+				if t {
+					// true の場合は先生
+					role = "teacher"
+				} else {
+					// false の場合は生徒
+					role = "student"
+				}
+			}
+
+			// レスポンス送信
+			c.JSON(http.StatusOK, gin.H{
+				"user_id":      id,
+				"user_nam":     name,
+				"user_teacher": role,
+			})
+		})
+		api.POST("/create_class", func(c *gin.Context) { //クラス作成用
+			var req CreateClassRequest
+			//  JSONデータを構造体にバインド（読み込み）
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "無効なデータ形式です"})
+				return
+			}
+			var themeColors = []string{ //クラスカラーの選択し
+				"bg-amber-600", "bg-orange-600", "bg-yellow-600", "bg-red-600",
+				"bg-emerald-600", "bg-green-600", "bg-teal-600", "bg-lime-600",
+				"bg-blue-600", "bg-indigo-600", "bg-sky-600", "bg-violet-600",
+				"bg-purple-600", "bg-fuchsia-600", "bg-pink-600", "bg-rose-600",
+				"bg-cyan-600", "bg-blue-500", "bg-emerald-500", "bg-indigo-500",
+			}
+			r := mrand.New(mrand.NewSource(time.Now().UnixNano())) //クラスカラーの乱数生成
+			session := sessions.Default(c)
+			teacherID := session.Get("user_id").(string) //セッションから教師IDの取得
+			// DBに登録
+			newCourse := Course{
+				Title:       req.Title,       // "className" の中身
+				Description: req.Description, // "description" の中身
+				TeacherID:   teacherID,
+				ThemeColor:  themeColors[r.Intn(len(themeColors))],
+			}
+			newID, err := CreateCourseWithUniqueCode(db, &newCourse)
+			if err != nil {
+				c.JSON(500, gin.H{"error": "作成失敗"})
+				return
+			}
+			// 登録したクラスに参加
+			joinCourse := Enrollment{
+				CourseID:  newID,
+				StudentID: teacherID,
+			}
+			db.Create(&joinCourse)
+
+			c.JSON(http.StatusOK, gin.H{
+				"status":  "success",
+				"message": "クラスを作成しました",
+				"course":  newCourse.InviteCode,
+			})
+		})
+		api.POST("/join_class", func(c *gin.Context) { //クラス参加用
+			var data map[string]string
+			if err := c.ShouldBindJSON(&data); err != nil {
+				c.JSON(400, gin.H{"error": "無効な形式です"})
+				return
+			}
+			code := data["inviteCode"] //データの取得
+			session := sessions.Default(c)
+			userVal := session.Get("user_id") //セッションから教師IDの取得
+			// ログインチェック
+			if userVal == nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "ログインしていません"})
+				return
+			}
+			studentID := userVal.(string)
+			if code == "" {
+				c.JSON(400, gin.H{"error": "招待コードを入力してください"})
+				return
+			}
+			var targetCourse Course //クラスIDの取得
+			if err := db.Where("invite_code = ?", code).First(&targetCourse).Error; err != nil {
+				// 見つからなかった場合
+				c.JSON(404, gin.H{"error": "有効な招待コードではありません"})
+				return
+			}
+			var count int64 //kurasuに参加していないか確認
+			db.Model(&Enrollment{}).Where("course_id = ? AND student_id = ?", targetCourse.ID, studentID).Count(&count)
+			if count > 0 {
+				c.JSON(400, gin.H{"error": "既にこのクラスに参加しています"})
+				return
+			}
+			joinCourse := Enrollment{
+				CourseID:  targetCourse.ID,
+				StudentID: studentID,
+			}
+			if err := db.Create(&joinCourse).Error; err != nil {
+				c.JSON(500, gin.H{"error": "参加処理に失敗しました"})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"status":    "success",
+				"className": targetCourse.Title,
+			})
+		})
+		api.GET("/my_courses", func(c *gin.Context) {
+			session := sessions.Default(c)
+			userVal := session.Get("user_id") // セッションからデータを取る
+			// nil かどうかをチェック
+			if userVal == nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "ログインしていません"})
+				return
+			}
+			ID := userVal.(string)
+			var enrollments []Enrollment
+			err := db.Preload("Course.Teacher").Where("student_id = ?", ID).Find(&enrollments).Error
+
+			if err != nil {
+				c.JSON(500, gin.H{"error": "データ取得失敗"})
+				return
+			}
+			var responseList []CourseResponse
+			for _, e := range enrollments {
+				s := e.Course.Teacher.Name
+				parts := strings.Split(s, "-")
+				UserNam := parts[0]
+				// 必要な情報を新しい構造体に詰め替える
+				res := CourseResponse{
+					ID:          e.CourseID,
+					ClassName:   e.Course.Title,
+					TeacherName: UserNam, // Teacher情報がPreloadされている前提
+					Description: e.Course.Description,
+					ThemeColor:  e.Course.ThemeColor,
+				}
+				// リストに追加
+				responseList = append(responseList, res)
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"status":  "success",
+				"courses": responseList,
+			})
 
 		})
 	}
@@ -687,4 +877,78 @@ func generateRandomToken() string {
 	b := make([]byte, 16) // 16バイトのランダム値
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+func LoginUser(db *gorm.DB, c *gin.Context, userID string) error { //セッションにデータの保存
+	// 格納するための構造体を用意
+	var retrievedUser user
+
+	// result 変数に結果を格納してエラーチェックを行うのが一般的です
+	result := db.Where("name = ?", userID).First(&retrievedUser)
+
+	// 3. エラーハンドリング
+	if result.Error != nil {
+		// データが見つからない、または接続エラーなどの場合
+		return result.Error
+	}
+	s := retrievedUser.Name
+	parts := strings.Split(s, "-")
+	UserNam := parts[0]
+
+	session := sessions.Default(c)
+
+	// セッションにログイン者を登録
+	session.Set("user_id", retrievedUser.ID)
+	session.Set("user_nam", UserNam)
+	session.Set("user_teacher", retrievedUser.Teacher)
+
+	// セッションの保存（忘れがちなので関数内に閉じ込めるのが安全）
+	if err := session.Save(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// クラス作成のDBの登録
+func CreateCourseWithUniqueCode(db *gorm.DB, course *Course) (uint, error) {
+	for {
+		// コードを生成
+		code := GenerateInviteCode()
+
+		// 既に存在するかチェック
+		var count int64
+		db.Model(&Course{}).Where("invite_code = ?", code).Count(&count)
+
+		if count == 0 {
+			// 重複がなければセットしてループ終了
+			course.InviteCode = code
+			break
+		}
+		// 重複があればもう一度ループして生成し直し
+	}
+
+	// DBへ登録
+	err := db.Create(course).Error
+	if err != nil {
+		return 0, err // 失敗した場合は 0 とエラーを返す
+	}
+
+	// 登録成功後、course.ID には自動で値が入っている
+	return course.ID, nil
+}
+
+// 　クラスIDの作成
+func GenerateInviteCode() string {
+	// 打ち間違いを防ぐため、似ている文字（I, l, O, 0, 1）を除外したリスト
+	const charset = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	const length = 6 // 6桁くらいがちょうどいいです
+
+	// 実行のたびに結果が変わるようにシードを設定
+	seededRand := mrand.New(mrand.NewSource(time.Now().UnixNano()))
+
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = charset[seededRand.Intn(len(charset))]
+	}
+	return string(b)
 }
