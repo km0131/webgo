@@ -14,6 +14,9 @@ import (
 	"io/fs"
 	"log"
 
+	"bytes"
+	"mime/multipart"
+
 	"math/big"
 	"os"
 	"strconv"
@@ -36,6 +39,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/skip2/go-qrcode"
+
+	"path/filepath"
 )
 
 const sessionKey = "signup_image_list"
@@ -83,6 +88,24 @@ type Enrollment struct { //履修者用DB
 	Course     Course `gorm:"foreignKey:CourseID"` //生徒IDを使ってcourseのデータを検索して取り出せる。便利
 }
 
+// AIの説明・セット情報を管理（親テーブル）
+type AiExplanation struct {
+	gorm.Model
+	StudentID   string `gorm:"not null;index"`
+	CourseID    string `gorm:"not null;index"`
+	Name        string `gorm:"size:255"`  // セットの名前
+	Explanation string `gorm:"type:text"` // セットの説明
+	// 関連付け：一つの説明に複数の画像が紐付く
+	Photographs []AiPhotograph `gorm:"foreignKey:AiExplanationID"`
+}
+
+// AIの画像パスを管理（子テーブル）
+type AiPhotograph struct {
+	gorm.Model
+	AiExplanationID uint   `gorm:"not null;index"` // 親IDへの参照
+	PhotographPath  string `gorm:"not null"`       // 保存したファイルパス
+}
+
 // テンプレートに渡すデータ構造
 type LoginPageData struct {
 	ErrorMessage string // エラーメッセージ
@@ -127,6 +150,19 @@ type CourseResponse struct {
 	ThemeColor  string `json:"themeColor"`
 }
 
+// 画像の受けとり構造体
+type AISet struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Images      []string `json:"images"` // Base64文字列の配列
+}
+
+// クラスIDと画像の構造体
+type AICreateRequest struct {
+	ClassId string  `json:"classId"`
+	AISets  []AISet `json:"aiSets"`
+}
+
 func main() {
 	key := os.Getenv("APP_MASTER_KEY") //環境変数に登録したQR暗号化のカギ
 	if key == "" {
@@ -144,10 +180,16 @@ func main() {
 		&certification{},
 		&Course{},
 		&Enrollment{},
+		&AiExplanation{},
+		&AiPhotograph{},
 	)
 	fmt.Println("テーブルのマイグレーションが完了しました。")
 
-	r := gin.Default()
+	r := gin.New() //gin.Default()
+	r.Use(gin.Logger(), gin.Recovery())
+	r.RedirectTrailingSlash = false
+	r.RedirectFixedPath = false
+
 	secret := []byte("your-very-secret-key-that-should-be-long-and-random") // 秘密鍵 (シークレットキー) を設定します。
 	store := cookie.NewStore(secret)                                        // 1. クッキーストアを作成
 	r.Use(sessions.Sessions("mysession", store))                            // 2. セッションミドルウェアをルーターに適用
@@ -531,6 +573,59 @@ func main() {
 				"courses": responseList,
 			})
 
+		})
+		api.POST("/ai_create", func(c *gin.Context) { //AI作成処理
+			var req AICreateRequest
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			session := sessions.Default(c)
+			userVal := session.Get("user_id") // セッションからデータを取る
+			// nil かどうかをチェック
+			if userVal == nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "ログインしていません"})
+				return
+			}
+			ID := userVal.(string)
+			courseID := req.ClassId
+
+			for _, set := range req.AISets {
+				// 1. 説明（親）を保存
+				explanation := AiExplanation{
+					StudentID:   ID,
+					CourseID:    courseID, // string なのでそのまま代入OK
+					Name:        set.Name,
+					Explanation: set.Description,
+				}
+				if err := db.Create(&explanation).Error; err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "DB保存失敗"})
+					return
+				}
+
+				for _, base64Data := range set.Images {
+					filePath, err := decodeBase64Image(base64Data)
+					if err != nil {
+						continue
+					}
+					imgData, err := os.ReadFile(filePath)
+					if err == nil {
+						// 非同期でPythonへ送信 (解析を待たずに次に進む)
+						go func(n string, d []byte) {
+							if err := sendToPython(n, d); err != nil {
+								fmt.Printf("Python送信エラー: %v\n", err)
+							}
+						}(set.Name, imgData)
+					}
+
+					photo := AiPhotograph{
+						AiExplanationID: explanation.ID,
+						PhotographPath:  filePath,
+					}
+					db.Create(&photo)
+				}
+				c.JSON(http.StatusOK, gin.H{"message": "完了"})
+			}
 		})
 	}
 
@@ -951,4 +1046,69 @@ func GenerateInviteCode() string {
 		b[i] = charset[seededRand.Intn(len(charset))]
 	}
 	return string(b)
+}
+
+// 画像に変換
+func decodeBase64Image(base64Str string) (string, error) {
+	// JSから送られてくる "data:image/png;base64,xxxx" のカンマより前をカット
+	i := strings.Index(base64Str, ",")
+	if i != -1 {
+		base64Str = base64Str[i+1:]
+	}
+
+	// Base64文字列をバイト配列（[]byte）にデコード
+	data, err := base64.StdEncoding.DecodeString(base64Str)
+	if err != nil {
+		return "", err
+	}
+	// 保存先ディレクトリの準備
+	uploadDir := "./image/ai_photograph"
+	if _, err := os.Stat(uploadDir); os.IsNotExist(err) {
+		os.MkdirAll(uploadDir, os.ModePerm)
+	}
+
+	// ユニークなファイル名の生成 (UUIDを利用)
+	fileName := fmt.Sprintf("%s.jpg", uuid.New().String())
+	filePath := filepath.Join(uploadDir, fileName)
+
+	// 4. ファイル書き込み
+	err = os.WriteFile(filePath, data, 0644)
+	if err != nil {
+		return "", err
+	}
+
+	return filePath, nil
+}
+
+func sendToPython(name string, imageBytes []byte) error {
+	// 1. マルチパートデータの準備
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	// 名前（Name）を書き込む
+	_ = writer.WriteField("name", name)
+
+	// 画像（Image）を書き込む
+	part, err := writer.CreateFormFile("image", "input.jpg")
+	if err != nil {
+		return err
+	}
+	part.Write(imageBytes)
+	writer.Close()
+
+	// 2. Python API（例: http://localhost:8000/predict）へ送信
+	req, err := http.NewRequest("POST", "http://localhost:8000/predict", body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	return nil
 }
